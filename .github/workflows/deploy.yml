@@ -1,0 +1,52 @@
+# Builds the web client and uploads it to Bloxity frontend hosting.
+#   main -> prod  (https://speed-skateboard-escape.play.bloxity.io)
+#   dev  -> dev   (https://speed-skateboard-escape.dev.play.bloxity.io)
+#
+# One-time setup: Repo -> Settings -> Secrets -> Actions: add LEGION_DEPLOY_TOKEN.
+name: Deploy client
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GAME_ID: speed-skateboard-escape
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Pick channel
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "CHANNEL=prod" >> "$GITHUB_ENV"; echo "MODE=production" >> "$GITHUB_ENV"
+          else
+            echo "CHANNEL=dev" >> "$GITHUB_ENV"; echo "MODE=dev" >> "$GITHUB_ENV"
+          fi
+
+      - run: npm ci
+      - run: npx vite build --mode "$MODE"
+
+      - name: Zip build
+        run: cd dist && zip -qr ../build.zip .
+
+      - name: Upload to Bloxity
+        env:
+          LEGION_DEPLOY_TOKEN: ${{ secrets.LEGION_DEPLOY_TOKEN }}
+        run: |
+          curl -sf -X POST \
+            "https://api.bloxity.io/v1/hosting/games/${GAME_ID}/frontend?channel=${CHANNEL}&version=${GITHUB_SHA}" \
+            -H "Authorization: Bearer ${LEGION_DEPLOY_TOKEN}" \
+            -H "Content-Type: application/zip" \
+            --data-binary @build.zip

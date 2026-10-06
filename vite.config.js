@@ -1,8 +1,12 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
-import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // Relative asset paths so the build works from any host/sub-path (Bloxity zip hosting).
+  base: './',
+  plugins: [react()],
+  build: {
+    chunkSizeWarningLimit: 4000,
+  },
 })

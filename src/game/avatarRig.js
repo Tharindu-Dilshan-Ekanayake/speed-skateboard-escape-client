@@ -385,3 +385,184 @@ export function animateRig(rig, motion) {
   swing(rig, 'Spine1', -0.14 * ratio)
   rig.root.position.y = rig.rootRestY + Math.abs(Math.cos(phase)) * 0.18 * ratio
 }
+
+/**
+ * Skateboarding pose. The avatar stands sideways on the board (the parent
+ * rotates it ~80°), knees bent, arms out along the board for balance. During a
+ * kick-push (`m.pushU` in 0..1) the body turns forward, the front knee bends
+ * so the back foot reaches the ground, sweeps backward, then lifts and returns.
+ *
+ * @param {object} rig from `collectRig`
+ * @param {{ time:number, speed:number, maxSpeed:number, grounded:boolean,
+ *           grinding:boolean, pushU:number, lean:number, style:number }} m
+ *   style: 0 surfer, 1 classic, 2 chill
+ */
+export function poseSkater(rig, m) {
+  if (!rig?.skeleton || !m) return
+  const ratio = Math.min(1, (m.speed || 0) / Math.max(1, m.maxSpeed || 10))
+  const t = m.time || 0
+  const lean = m.lean || 0
+
+  if (m.grinding) {
+    sway(rig, 'LegL1', -0.32)
+    sway(rig, 'LegR1', 0.32)
+    swing(rig, 'LegL1', -0.8)
+    swing(rig, 'LegL2', 1.45)
+    swing(rig, 'LegR1', -0.8)
+    swing(rig, 'LegR2', 1.45)
+    swing(rig, 'Spine1', -0.3)
+    sway(rig, 'ArmL1', -1.3 + Math.sin(t * 8) * 0.08)
+    sway(rig, 'ArmR1', 1.3 - Math.sin(t * 8) * 0.08)
+    rig.root.position.y = rig.rootRestY - 0.6
+    return
+  }
+
+  if (!m.grounded && m.style === 0) {
+    // Indy grab: knees tucked, trailing hand reaches down to the board.
+    sway(rig, 'LegL1', -0.35)
+    sway(rig, 'LegR1', 0.35)
+    swing(rig, 'LegL1', -1.35)
+    swing(rig, 'LegL2', 2.0)
+    swing(rig, 'LegR1', -1.35)
+    swing(rig, 'LegR2', 2.0)
+    swing(rig, 'Spine1', -0.45)
+    sway(rig, 'ArmL1', -1.5)
+    swing(rig, 'ArmL1', -0.3)
+    swing(rig, 'ArmR1', -0.4)
+    sway(rig, 'ArmR1', 0.25)
+    swing(rig, 'ArmR2', -0.2)
+    rig.root.position.y = rig.rootRestY - 0.55
+    return
+  }
+
+  if (!m.grounded) {
+    sway(rig, 'LegL1', -0.3)
+    sway(rig, 'LegR1', 0.3)
+    swing(rig, 'LegL1', -1.1)
+    swing(rig, 'LegL2', 1.7)
+    swing(rig, 'LegR1', -1.1)
+    swing(rig, 'LegR2', 1.7)
+    swing(rig, 'Spine1', -0.25)
+    sway(rig, 'ArmL1', -1.25)
+    sway(rig, 'ArmR1', 1.1)
+    swing(rig, 'ArmL1', -0.4)
+    rig.root.position.y = rig.rootRestY - 0.4
+    return
+  }
+
+  if (m.braking) {
+    // Powerslide: deep, wide crouch, weight on the back, arms out for balance.
+    sway(rig, 'LegL1', -0.45)
+    sway(rig, 'LegR1', 0.45)
+    swing(rig, 'LegL1', -0.95)
+    swing(rig, 'LegL2', 1.6)
+    swing(rig, 'LegR1', -0.75)
+    swing(rig, 'LegR2', 1.35)
+    swing(rig, 'Spine1', -0.1)
+    sway(rig, 'ArmL1', -1.35)
+    sway(rig, 'ArmR1', 1.15)
+    swing(rig, 'ArmR1', -0.4)
+    rig.root.position.y = rig.rootRestY - 0.7
+    return
+  }
+
+  const u = m.pushU ?? -1
+  if (u >= 0) {
+    // Kick-push. Front leg stays on the board and bends; back leg strikes the
+    // ground ahead of the hip, sweeps back, then lifts and comes forward again.
+    let thigh
+    let knee
+    let drop
+    if (u < 0.15) {
+      const k = u / 0.15
+      thigh = 0.2 - 0.6 * k
+      knee = 1.0 - 0.85 * k
+      drop = 0.35 + 0.5 * k
+    } else if (u < 0.62) {
+      const k = (u - 0.15) / 0.47
+      thigh = -0.4 + 1.25 * k
+      knee = 0.15
+      drop = 0.85
+    } else {
+      const k = (u - 0.62) / 0.38
+      thigh = 0.85 - 0.65 * k
+      knee = 0.15 + Math.sin(k * Math.PI) * 1.3
+      drop = 0.85 - 0.5 * k
+    }
+    swing(rig, 'LegL1', -0.75)
+    swing(rig, 'LegL2', 1.45)
+    swing(rig, 'LegR1', thigh)
+    swing(rig, 'LegR2', knee)
+    sway(rig, 'LegR1', 0.16)
+    swing(rig, 'Spine1', -0.3)
+    swing(rig, 'ArmL1', thigh * 0.5)
+    swing(rig, 'ArmR1', -thigh * 0.5)
+    sway(rig, 'ArmL1', -0.3)
+    sway(rig, 'ArmR1', 0.3)
+    rig.root.position.y = rig.rootRestY - drop
+    return
+  }
+
+  if (m.style === 0) {
+    // Surfer: deep low crouch, wide feet, leading arm reaching toward the nose,
+    // trailing arm low behind. Carves by rolling the shoulders into the turn.
+    const crouch = 0.55 + ratio * 0.2
+    const carve = lean * 0.6
+    const breathe = Math.sin(t * 2.1) * 0.04
+    sway(rig, 'LegL1', -0.45)
+    sway(rig, 'LegR1', 0.45)
+    swing(rig, 'LegL1', -crouch)
+    swing(rig, 'LegL2', crouch * 1.85)
+    swing(rig, 'LegR1', -crouch)
+    swing(rig, 'LegR2', crouch * 1.85)
+    swing(rig, 'Spine1', -0.32 - ratio * 0.1)
+    sway(rig, 'Spine1', carve * 0.6)
+    sway(rig, 'ArmL1', -1.15 - carve * 0.4 + breathe)
+    swing(rig, 'ArmL1', -0.55)
+    swing(rig, 'ArmL2', -0.35)
+    sway(rig, 'ArmR1', 0.75 - carve * 0.4 - breathe)
+    swing(rig, 'ArmR1', 0.6)
+    swing(rig, 'ArmR2', -0.5)
+    rig.root.position.y = rig.rootRestY - crouch * 0.95 + breathe
+    return
+  }
+
+  if (m.style === 2) {
+    // Chill: upright and relaxed, arms loose by the sides, a slow sway.
+    const sway2 = Math.sin(t * 1.3) * 0.05
+    sway(rig, 'LegL1', -0.2)
+    sway(rig, 'LegR1', 0.2)
+    swing(rig, 'LegL1', -0.12)
+    swing(rig, 'LegL2', 0.25)
+    swing(rig, 'LegR1', -0.12)
+    swing(rig, 'LegR2', 0.25)
+    swing(rig, 'Spine1', -0.04)
+    sway(rig, 'Spine1', lean * 0.25 + sway2)
+    sway(rig, 'ArmL1', -0.18 - ratio * 0.2 + sway2)
+    sway(rig, 'ArmR1', 0.18 + ratio * 0.2 + sway2)
+    swing(rig, 'ArmL1', 0.15)
+    swing(rig, 'ArmR1', 0.1)
+    swing(rig, 'ArmL2', -0.4)
+    swing(rig, 'ArmR2', -0.4)
+    rig.root.position.y = rig.rootRestY - 0.14
+    return
+  }
+
+  // Classic cruising: sideways stance, feet apart along the board, arms out.
+  const crouch = 0.3 + ratio * 0.22
+  const bob = Math.sin(t * 2.4) * 0.03
+  sway(rig, 'LegL1', -0.3)
+  sway(rig, 'LegR1', 0.3)
+  swing(rig, 'LegL1', -crouch)
+  swing(rig, 'LegL2', crouch * 1.9)
+  swing(rig, 'LegR1', -crouch)
+  swing(rig, 'LegR2', crouch * 1.9)
+  swing(rig, 'Spine1', -0.12 - ratio * 0.12 - lean * 0.3)
+  sway(rig, 'ArmL1', -0.75 - ratio * 0.3 + bob)
+  sway(rig, 'ArmR1', 0.6 + ratio * 0.3 - bob)
+  swing(rig, 'ArmL1', -0.15)
+  swing(rig, 'ArmR1', 0.2)
+  swing(rig, 'ArmL2', -0.25)
+  swing(rig, 'ArmR2', -0.25)
+  rig.root.position.y = rig.rootRestY - crouch * 0.85 + bob
+}

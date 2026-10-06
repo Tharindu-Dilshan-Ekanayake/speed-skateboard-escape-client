@@ -1,0 +1,137 @@
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  font-family: 'Fredoka', system-ui, sans-serif;
+  font-weight: 700;
+  color: #fff;
+  overflow: hidden;
+  transition: opacity 0.6s ease;
+  background: #2fb8ff;
+}
+.loading.out {
+  opacity: 0;
+  pointer-events: none;
+}
+.loading-sky {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 20% 15%, rgba(255, 255, 255, 0.55) 0 6%, transparent 7%),
+    radial-gradient(ellipse at 75% 25%, rgba(255, 255, 255, 0.45) 0 8%, transparent 9%),
+    linear-gradient(180deg, #2fb8ff 0%, #8fdcff 55%, #e5763f 55.2%, #e5763f 72%, #c9c4dc 72.2%);
+}
+.loading-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.4rem;
+  width: min(44rem, 90vw);
+  text-align: center;
+}
+.logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 0.95;
+  -webkit-text-stroke: 0.2em #1b1530;
+  paint-order: stroke fill;
+  text-shadow: 0 0.12em 0 #1b1530;
+  transform: rotate(-3deg);
+}
+.logo .plus {
+  font-size: 3.6rem;
+  color: #5cff7a;
+}
+.logo .main {
+  font-size: 6.4rem;
+  color: #ffffff;
+}
+.logo .esc {
+  font-size: 5rem;
+  color: #ffd21f;
+}
+.board-anim {
+  position: relative;
+  width: 14rem;
+  height: 4rem;
+  animation: roll 1.2s ease-in-out infinite;
+}
+.board-anim .deck {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0.6rem;
+  height: 1.2rem;
+  border-radius: 1rem;
+  background: linear-gradient(90deg, #ff3b4a, #ffd21f, #3fe8ff);
+  border: 0.3rem solid #1b1530;
+}
+.board-anim .wheel {
+  position: absolute;
+  top: 1.9rem;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  background: #fff;
+  border: 0.3rem solid #1b1530;
+  animation: spin 0.4s linear infinite;
+}
+.board-anim .w1 {
+  left: 2rem;
+}
+.board-anim .w2 {
+  right: 2rem;
+}
+@keyframes roll {
+  0%,
+  100% {
+    transform: translateX(-2rem) rotate(0deg);
+  }
+  50% {
+    transform: translateX(2rem) translateY(-1.2rem) rotate(-8deg);
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.lbar {
+  width: 100%;
+  height: 2.6rem;
+  border-radius: 1.4rem;
+  border: 0.32rem solid #1b1530;
+  background: #fff;
+  overflow: hidden;
+}
+.lfill {
+  height: 100%;
+  background: linear-gradient(180deg, #9cff8a, #2fd04a);
+  transition: width 0.3s ease;
+}
+.ltext {
+  font-size: 2.2rem;
+  -webkit-text-stroke: 0.16em #1b1530;
+  paint-order: stroke fill;
+}
+.ltip {
+  font-size: 1.6rem;
+  min-height: 2.2em;
+  color: #1b1530;
+  font-weight: 600;
+}
+.reload {
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 2.2rem;
+  color: #fff;
+  border: 0.32rem solid #1b1530;
+  border-radius: 1rem;
+  padding: 0.7rem 2rem;
+  background: linear-gradient(160deg, #8cff8c, #1fc44a);
+  cursor: pointer;
+}
