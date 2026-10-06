@@ -263,7 +263,7 @@ export function LocalPlayer({ layout, physics, sunRef }) {
     m.pushing = c.pushing
     m.braking = c.braking && c.speed > 0.6
     m.flips = c.flips
-    m.style = game.settings.style ?? 0
+    m.style = 0
     m.lean += (Math.max(-1, Math.min(1, turnRate * 0.25)) - m.lean) * Math.min(1, frameDt * 8)
     // Ground normal in the rider's local frame, for board tilt.
     _local.copy(c.groundNormal).applyAxisAngle(_fwd.set(0, 1, 0), -tm.visualRy)
