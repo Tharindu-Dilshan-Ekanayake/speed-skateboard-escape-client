@@ -1,84 +1,87 @@
-import { Environment } from '@react-three/drei'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Physics } from '@react-three/rapier'
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
-import { useBloxity } from '../bloxity/BloxityContext'
-import FollowCamera from './FollowCamera'
-import Ground from './Ground'
-import Player from './Player'
+import { getWorlds } from '../shared/layout'
+import { useGame } from '../state/store'
+import Interactives from './Interactives'
+import LocalPlayer from './LocalPlayer'
+import Obstacles from './Obstacles'
+import { Physics } from './physics'
+import RemotePlayers from './RemotePlayers'
+import Sky from './Sky'
+import World from './World'
 
-/**
- * Fires `onFirstFrame` after the renderer has actually drawn once.
- * `loadingEnd()` should mean "the player can see the game", not "React mounted".
- */
-function FirstFrameSignal({ onFirstFrame }) {
-  const fired = useRef(false)
+function FirstFrame({ onFirst }) {
+  const done = useRef(false)
   useFrame(() => {
-    if (fired.current) return
-    fired.current = true
-    onFirstFrame()
+    if (done.current) return
+    done.current = true
+    onFirst?.()
   })
   return null
 }
 
-export function GameScene() {
-  const { game } = useBloxity()
-  const playerBodyRef = useRef(null)
-
-  const [avatarReady, setAvatarReady] = useState(false)
-  const loadingEnded = useRef(false)
-
-  const handleAvatarReady = useCallback(() => setAvatarReady(true), [])
-
-  // Only end the loading screen once the avatar has finished assembling *and* a
-  // frame has rendered with it in place.
-  const handleFirstFrame = useCallback(() => {
-    if (loadingEnded.current || !avatarReady) return
-    loadingEnded.current = true
-    game.loadingEnd()
-  }, [avatarReady, game])
-
-  // The first frame usually renders before the avatar finishes downloading, so the
-  // frame callback alone isn't enough — close the loading screen here too.
-  useEffect(() => {
-    if (!avatarReady || loadingEnded.current) return
-    loadingEnded.current = true
-    game.loadingEnd()
-  }, [avatarReady, game])
+function Scene({ worldIndex, shadows, onFirstFrame }) {
+  const layout = getWorlds()[worldIndex]
+  const physics = useMemo(() => new Physics(layout, layout.spawn), [layout])
+  const sun = useRef(null)
+  const theme = layout.theme
 
   useEffect(() => {
-    game.loadingStep('Preparing scene…')
-  }, [game])
+    physics.retain()
+    return () => physics.release()
+  }, [physics])
 
   return (
-    <Canvas
-      shadows
-      camera={{ position: [0, 5, 10], fov: 60 }}
-      onCreated={({ gl }) => gl.setClearColor('#87ceeb')}
-    >
-      <hemisphereLight args={['#bfe3ff', '#3f5d3f', 0.8]} />
+    <>
+      <color attach="background" args={[theme.sky[1]]} />
+      <fog attach="fog" args={[theme.fog, 110, 330]} />
+      <hemisphereLight args={[theme.sky[1], worldIndex === 0 ? '#8a7a9a' : '#2a1a4a', worldIndex === 0 ? 1.25 : 0.9]} />
+      <ambientLight intensity={worldIndex === 0 ? 0.35 : 0.45} />
       <directionalLight
-        castShadow
-        position={[10, 20, 10]}
-        intensity={1.8}
+        ref={sun}
+        castShadow={shadows}
+        intensity={worldIndex === 0 ? 2.3 : 1.4}
+        color={theme.sun}
+        position={[30, 60, 20]}
         shadow-mapSize={[2048, 2048]}
+        shadow-camera-left={-55}
+        shadow-camera-right={55}
+        shadow-camera-top={55}
+        shadow-camera-bottom={-55}
+        shadow-camera-near={1}
+        shadow-camera-far={180}
+        shadow-bias={-0.0005}
+        shadow-normalBias={0.04}
       />
+      <Sky theme={theme} ox={layout.ox} />
+      <World layout={layout} shadows={shadows} />
+      <Interactives layout={layout} />
+      <Obstacles layout={layout} physics={physics} />
+      <LocalPlayer key={worldIndex} layout={layout} physics={physics} sunRef={sun} />
+      <RemotePlayers world={worldIndex} />
+      <FirstFrame onFirst={onFirstFrame} />
+    </>
+  )
+}
 
-      <Suspense fallback={null}>
-        <Environment preset="city" />
-        <Physics gravity={[0, -18, 0]}>
-          <Ground />
-          <Player
-            bodyRef={playerBodyRef}
-            position={[0, 3, 8]}
-            onAvatarReady={handleAvatarReady}
-          />
-        </Physics>
-      </Suspense>
-
-      <FollowCamera bodyRef={playerBodyRef} />
-      <FirstFrameSignal onFirstFrame={handleFirstFrame} />
+export function GameScene({ onFirstFrame }) {
+  const world = useGame((s) => s.stats.world)
+  const quality = useGame((s) => s.settings.quality)
+  const high = quality === 'high'
+  return (
+    <Canvas
+      key={high ? 'hq' : 'lq'}
+      shadows={high ? 'percentage' : false}
+      dpr={high ? [1, 1.75] : [0.75, 1]}
+      gl={{ antialias: high, powerPreference: 'high-performance' }}
+      camera={{ fov: 65, near: 0.1, far: 3000, position: [0, 6, 42] }}
+      style={{ position: 'absolute', inset: 0, touchAction: 'none' }}
+      onCreated={({ gl, scene }) => {
+        if (import.meta.env.DEV && window.__sse) Object.assign(window.__sse, { gl, scene })
+      }}
+    >
+      <Scene worldIndex={world} shadows={high} onFirstFrame={onFirstFrame} />
     </Canvas>
   )
 }

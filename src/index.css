@@ -1,9 +1,10 @@
-@import 'tailwindcss';
+@import '@fontsource/fredoka/600.css';
+@import '@fontsource/fredoka/700.css';
 
 :root {
-  color-scheme: dark;
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Fredoka', system-ui, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  color-scheme: light;
 }
 
 html,
@@ -12,10 +13,19 @@ body,
   height: 100%;
   margin: 0;
   overflow: hidden;
+  background: #2fb8ff;
+  overscroll-behavior: none;
 }
 
-/* The R3F canvas fills its container; the HUD is absolutely positioned over it. */
+.app-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* The R3F canvas fills the screen; the HUD is absolutely positioned over it. */
 canvas {
   display: block;
   touch-action: none;
+  outline: none;
 }
