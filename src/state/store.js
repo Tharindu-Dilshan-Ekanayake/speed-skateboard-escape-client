@@ -45,6 +45,20 @@ export const useGame = create((set, get) => ({
 
   settings: loadSettings(),
 
+  /** The game opens once BOTH the server connection and the 3D scene are ready. */
+  ready: { net: false, scene: false },
+  markReady: (key) => {
+    const s = get()
+    if (s.phase === 'playing' || s.phase === 'kicked') return
+    const ready = { ...s.ready, [key]: true }
+    set({ ready })
+    if (ready.net && ready.scene) {
+      set({ progress: 1, loadingText: 'Ready!' })
+      setTimeout(() => {
+        if (get().phase !== 'kicked') set({ phase: 'playing' })
+      }, 250)
+    }
+  },
   setPhase: (phase) => set({ phase }),
   setLoading: (progress, loadingText) => set((s) => ({ progress: Math.max(s.progress, progress), loadingText })),
   openPanel: (panel) => set((s) => ({ panel: s.panel === panel ? null : panel, prompt: null })),

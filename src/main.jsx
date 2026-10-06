@@ -4,13 +4,17 @@ import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import BloxityProvider from './bloxity/BloxityProvider.jsx'
 import { audio } from './game/audio'
-import { cameraRig } from './game/cameraRig'
 import { net } from './net/session'
 import { live, useGame } from './state/store'
 import './index.css'
 
 // Dev-only handle for automated playtests; stripped from production builds.
-if (import.meta.env.DEV) window.__sse = { net, live, useGame, cameraRig, audio }
+if (import.meta.env.DEV) {
+  window.__sse = { net, live, useGame, audio }
+  import('./game/cameraRig').then((m) => {
+    window.__sse.cameraRig = m.cameraRig
+  })
+}
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
