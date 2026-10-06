@@ -12,10 +12,10 @@ function buildClouds(theme, ox) {
     seed = (seed * 16807) % 2147483647
     return seed / 2147483647
   }
-  for (let i = 0; i < 26; i += 1) {
+  for (let i = 0; i < 44; i += 1) {
     const cx = ox + (rnd() - 0.5) * 900
-    const cz = 200 - rnd() * 3000
-    const cy = 140 + rnd() * 90
+    const cz = 200 - rnd() * 4200
+    const cy = 90 + rnd() * 70
     const n = 3 + Math.floor(rnd() * 4)
     for (let k = 0; k < n; k += 1) {
       const s = 18 + rnd() * 26
@@ -58,8 +58,8 @@ export function Sky({ theme, ox }) {
           uniform vec3 bottom;
           varying vec3 vDir;
           void main() {
-            float h = clamp(vDir.y * 1.6 + 0.15, 0.0, 1.0);
-            gl_FragColor = vec4(mix(bottom, top, pow(h, 0.8)), 1.0);
+            float h = clamp(vDir.y * 2.4 + 0.04, 0.0, 1.0);
+            gl_FragColor = vec4(mix(bottom, top, pow(h, 0.55)), 1.0);
             #include <colorspace_fragment>
           }`,
       }),
@@ -75,7 +75,7 @@ export function Sky({ theme, ox }) {
   return (
     <>
       <mesh ref={dome} material={material} renderOrder={-1} frustumCulled={false}>
-        <sphereGeometry args={[1400, 32, 16]} />
+        <sphereGeometry args={[480, 32, 16]} />
       </mesh>
       <primitive object={clouds} />
     </>

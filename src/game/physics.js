@@ -2,7 +2,12 @@ import RAPIER from '@dimforge/rapier3d-compat'
 import { Quaternion, Vector3 } from 'three'
 
 import { moverPos } from '../shared/layout'
-import { pipeWorldTriangles, wedgeHullPoints } from './geometry'
+import { pipeWorldTriangles, ribbonTriangles, wedgeHullPoints } from './geometry'
+
+/** Crumbling planks: shake, then drop, then come back after a while. */
+const CRUMBLE_SHAKE = 0.45
+const CRUMBLE_FALL = 1.6
+const CRUMBLE_RESET = 4.5
 
 /**
  * Rapier world built from the shared layout. Only static colliders plus the
@@ -34,6 +39,8 @@ export class Physics {
     this.moverByHandle = new Map()
     this.movers = []
     this.rails = []
+    this.crumbles = []
+    this.crumbleByHandle = new Map()
     this.build()
 
     this.player = this.world.createCollider(
@@ -87,7 +94,7 @@ export class Physics {
     for (const tm of layout.treadmills) {
       add(RAPIER.ColliderDesc.cuboid(1.9, 0.15, 3.4).setTranslation(tm.p[0], tm.p[1] + 0.15, tm.p[2]))
       for (const sx of [-1, 1]) {
-        add(RAPIER.ColliderDesc.cuboid(0.12, 0.9, 0.12).setTranslation(tm.p[0] + sx * 1.75, tm.p[1] + 1.1, tm.p[2] - 3.3))
+        add(RAPIER.ColliderDesc.cuboid(0.15, 2.2, 0.15).setTranslation(tm.p[0] + sx * 2.05, tm.p[1] + 2.2, tm.p[2] - 3.55))
       }
     }
 
@@ -125,6 +132,20 @@ export class Physics {
       )
     }
 
+    for (const r of layout.ribbons) {
+      const { positions } = ribbonTriangles(r)
+      const idx = new Uint32Array(positions.length / 3)
+      for (let i = 0; i < idx.length; i += 1) idx[i] = i
+      add(RAPIER.ColliderDesc.trimesh(positions, idx))
+    }
+
+    for (const cr of layout.crumbles) {
+      const col = add(RAPIER.ColliderDesc.cuboid(cr.s[0] / 2, cr.s[1] / 2, cr.s[2] / 2).setTranslation(cr.p[0], cr.p[1], cr.p[2]))
+      const plank = { def: cr, col, state: 'idle', t: 0, y: 0, shake: 0 }
+      this.crumbles.push(plank)
+      this.crumbleByHandle.set(col.handle, plank)
+    }
+
     for (const m of layout.movers) {
       const col = add(RAPIER.ColliderDesc.cuboid(m.s[0] / 2, m.s[1] / 2, m.s[2] / 2).setTranslation(m.p[0], m.p[1], m.p[2]))
       const mover = { def: m, col, pos: [...m.p], delta: [0, 0, 0] }
@@ -142,6 +163,49 @@ export class Physics {
       m.col.setTranslation({ x: next[0], y: next[1], z: next[2] })
     }
     this.world.step()
+  }
+
+  /** Starts a plank crumbling (if it is still whole). */
+  triggerCrumble(handle) {
+    const plank = this.crumbleByHandle.get(handle)
+    if (plank && plank.state === 'idle') {
+      plank.state = 'shaking'
+      plank.t = 0
+      return true
+    }
+    return false
+  }
+
+  /** Advances every crumbling plank. `feet` keeps a plank from respawning into the rider. */
+  updateCrumbles(dt, feet) {
+    for (const p of this.crumbles) {
+      if (p.state === 'idle') continue
+      p.t += dt
+      if (p.state === 'shaking') {
+        p.shake = Math.sin(p.t * 60) * 0.06
+        if (p.t >= CRUMBLE_SHAKE) {
+          p.state = 'falling'
+          p.t = 0
+          p.col.setEnabled(false)
+        }
+      } else if (p.state === 'falling') {
+        p.y = -0.5 * 20 * p.t * p.t
+        if (p.t >= CRUMBLE_FALL) {
+          p.state = 'gone'
+          p.t = 0
+        }
+      } else if (p.state === 'gone' && p.t >= CRUMBLE_RESET) {
+        const [x, y, z] = p.def.p
+        const [sx, , sz] = p.def.s
+        const inside = feet && Math.abs(feet.x - x) < sx / 2 + 0.6 && Math.abs(feet.z - z) < sz / 2 + 0.6 && Math.abs(feet.y - y) < 3
+        if (!inside) {
+          p.state = 'idle'
+          p.y = 0
+          p.shake = 0
+          p.col.setEnabled(true)
+        }
+      }
+    }
   }
 
   /** Casts a ray from the rider centre straight down. */

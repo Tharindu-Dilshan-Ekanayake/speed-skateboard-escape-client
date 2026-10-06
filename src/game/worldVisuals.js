@@ -115,6 +115,10 @@ export function buildVisuals(layout) {
         box([x + 0.6 * k, y + 0.9 * k, z + 0.3 * k], [1.3 * k, 1 * k, 1.3 * k], t.leaf)
         box([x - 0.6 * k, y + 0.8 * k, z - 0.4 * k], [1.1 * k, 0.9 * k, 1.1 * k], t.leafLight)
         break
+      case 'lily':
+        cyl([x, y + 0.03, z], 0.62, 0.05, t.leafDark)
+        box([x + 0.15, y + 0.12, z - 0.1], [0.22, 0.16, 0.22], '#ff8ad8', 'plain')
+        break
       case 'rock': {
         const r = hash(x, z)
         rocks.push({ p: [x, y + 0.45 * k, z], s: [1.2 * k * (0.9 + r * 0.4), 0.9 * k, 1.1 * k], ry: r * 6, color: t.rock })
@@ -210,7 +214,7 @@ export function buildVisuals(layout) {
       for (const arm of [-1, 1]) {
         const ox = arm * 0.55
         const oz = 0.45
-        box([x + ox * c + oz * sn, 0.035, z - ox * sn + oz * c], [0.32, 0.07, 1.5], d.color, 'plain', d.ry + arm * 0.75)
+        box([x + ox * c + oz * sn, 0.1, z - ox * sn + oz * c], [0.32, 0.12, 1.5], d.color, 'plain', d.ry + arm * 0.75)
       }
     } else if (d.kind === 'bunting') {
       const [x, y, z] = d.p
@@ -256,20 +260,13 @@ export function buildVisuals(layout) {
       const nz = -Math.sin(ry)
       for (const side of [-1, 1]) {
         const off = side * (d.w / 2 - 0.45)
-        box([(x0 + x1) / 2 + nx * off, 0.03, (z0 + z1) / 2 + nz * off], [0.35, 0.06, len], '#ffffff', 'plain', ry)
+        box([(x0 + x1) / 2 + nx * off, 0.09, (z0 + z1) / 2 + nz * off], [0.35, 0.06, len], '#ffffff', 'plain', ry)
       }
       const dashes = Math.floor(len / 3)
       for (let i = 0; i < dashes; i += 1) {
         const u = (i + 0.5) / dashes
-        box([x0 + (x1 - x0) * u, 0.03, z0 + (z1 - z0) * u], [0.35, 0.06, 1.4], '#ffd21f', 'plain', ry)
+        box([x0 + (x1 - x0) * u, 0.09, z0 + (z1 - z0) * u], [0.35, 0.06, 1.4], '#ffd21f', 'plain', ry)
       }
-    }
-  }
-
-  for (const s of layout.stripes) {
-    const n = Math.round(s.w / 1.2)
-    for (let i = 0; i < n; i += 1) {
-      box([s.p[0] - s.w / 2 + (i + 0.5) * (s.w / n), 0.03, s.p[2]], [s.w / n, 0.06, 0.8], i % 2 ? '#1b1b22' : '#ffd21f', 'plain')
     }
   }
 

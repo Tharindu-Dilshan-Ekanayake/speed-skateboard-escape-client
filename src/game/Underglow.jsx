@@ -31,7 +31,16 @@ function getPoolTexture() {
 
 const _c = new Color()
 
-export function Underglow({ board, glow, motionRef, liftRef }) {
+/**
+ * Levels 0-8 only get a faint, small glow. It grows brighter and larger as you
+ * level up, and a more expensive board shines a bit stronger than a cheap one.
+ */
+function strength(level, tier) {
+  const lf = Math.min(1, Math.max(0, (level - 8) / 15))
+  return (0.22 + 0.78 * lf) * (0.65 + 0.35 * (tier / 14))
+}
+
+export function Underglow({ board, glow, motionRef, liftRef, level: riderLevel = 0 }) {
   const pool = useRef(null)
   const strip = useRef(null)
   const level = useRef(0.4)
@@ -53,7 +62,8 @@ export function Underglow({ board, glow, motionRef, liftRef }) {
     const moving = m && (m.speed > 1 || m.treadmill)
     const target = moving ? 1 : 0.35
     level.current += (target - level.current) * Math.min(1, dt * 4)
-    let k = level.current
+    const power = strength(riderLevel, boardById(board).tier)
+    let k = level.current * power
     if (fx === 'pulse') k *= 0.65 + Math.sin(t * 4) * 0.35
     else if (fx === 'flicker') k *= 0.75 + Math.sin(t * 23) * 0.12 + Math.sin(t * 37) * 0.13
     else if (fx === 'sparkle') k *= 0.8 + (Math.sin(t * 15) > 0.85 ? 0.4 : 0)
@@ -62,10 +72,11 @@ export function Underglow({ board, glow, motionRef, liftRef }) {
     // In the air the pool fades as the board leaves the ground.
     const air = m && !m.grounded && !m.grinding ? 0.4 : 1
     mats.pool.color.copy(_c).multiplyScalar(k * 0.9 * air)
-    mats.strip.color.copy(_c).multiplyScalar(0.6 + k * 0.8)
+    mats.strip.color.copy(_c).multiplyScalar(0.25 + k * 0.9)
     if (pool.current) {
       const s = 1 + (moving ? Math.sin(t * 6) * 0.04 : 0)
-      pool.current.scale.set(1.5 * s, 2.3 * s, 1)
+      const size = 0.8 + 0.7 * power
+      pool.current.scale.set(1.5 * size * s, 2.3 * size * s, 1)
     }
     if (strip.current && liftRef?.current) strip.current.position.y = liftRef.current.position.y + 0.085
   })

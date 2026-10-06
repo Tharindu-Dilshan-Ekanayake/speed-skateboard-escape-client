@@ -20,6 +20,7 @@ const KICK_CODE = 4777
 
 const FAIL_TEXT = {
   wins: 'Not enough Wins!',
+  order: 'Buy the board before this one first!',
   locked: 'Locked! Rebirth more to unlock it.',
   level: 'Reach Level 25 to Rebirth!',
   sold: 'Sold out! Wait for the restock.',
@@ -81,14 +82,23 @@ function writeGuestToken(token) {
   }
 }
 
-/** Waits (briefly) for the Bloxity SDK so a logged-in player loads their account. */
-async function waitForBloxity(timeoutMs = 6000) {
+/**
+ * Waits for the Bloxity SDK so a logged-in player loads their own account.
+ * Hosted on Bloxity the game runs in an iframe and the portal hands over the
+ * signed-in user shortly after start-up, so give it a moment before falling
+ * back to a guest. There is no login button in the game.
+ */
+async function waitForBloxity(timeoutMs = 6000, userWaitMs = 4000) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     const status = useBloxityStore.getState().status
-    if (status === 'ready' || status === 'error') return
+    if (status === 'ready' || status === 'error') break
     await wait(100)
   }
+  const inFrame = safeCall(getSDK()?.portal?.isInIframe?.bind(getSDK()?.portal))
+  if (!inFrame) return
+  const until = Date.now() + userWaitMs
+  while (Date.now() < until && !useBloxityStore.getState().user) await wait(100)
 }
 
 async function fetchSessionToken() {
@@ -397,7 +407,7 @@ class Session {
     const text = OK_TEXT[m.action]
     if (text) game.toast(text, 'good')
     audio.play(m.action === 'equipBoard' ? 'click' : 'buy')
-    if (m.action === 'buyBoard' || m.action === 'buyTreadmill' || m.action === 'buyPremium') game.setPrompt(null)
+    if (m.action === 'buyBoard' || m.action === 'equipBoard' || m.action === 'buyTreadmill' || m.action === 'buyPremium') game.setPrompt(null)
   }
 }
 

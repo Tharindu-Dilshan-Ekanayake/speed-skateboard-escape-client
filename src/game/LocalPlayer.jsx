@@ -8,6 +8,7 @@ import { WORLD_UNLOCK_REBIRTHS, moveSpeedFor } from '../shared/config'
 import {
   BOARD_PAD,
   KILL_Y,
+  carPos,
   grannyPos,
   inRect,
   stageAtZ,
@@ -20,7 +21,7 @@ import { live, serverSeconds, useGame } from '../state/store'
 import { audio } from './audio'
 import { cameraRig } from './cameraRig'
 import { RiderController } from './controller'
-import { consumeJump, readStick } from './controls'
+import { consumeInteract, consumeJump, readStick } from './controls'
 import Skater from './Skater'
 
 const SEND_INTERVAL = 1 / 15
@@ -52,6 +53,10 @@ function hitObstacle(layout, pos, t) {
     if (o.kind === 'granny') {
       const g = grannyPos(o, t)
       if (Math.abs(pos.x - g.x) < 2.4 && Math.abs(pos.z - g.z) < 2.0 && pos.y < 10) return true
+    } else if (o.kind === 'car') {
+      if (pos.y > 2.2 || Math.abs(pos.x - o.x) > 1.7) continue
+      const car = carPos(o, t)
+      if (car.grow > 0.6 && Math.abs(pos.z - car.z) < 2.6) return true
     } else if (o.kind === 'sweeper') {
       if (pos.y > o.p[1] + 0.3) continue
       if (Math.abs(pos.z - o.p[2]) > o.radius + 1 || Math.abs(pos.x - o.p[0]) > o.radius + 1) continue
@@ -83,6 +88,7 @@ export function LocalPlayer({ layout, physics, sunRef }) {
     grounded: true,
     grinding: false,
     pushing: false,
+    braking: false,
     treadmill: false,
     lean: 0,
     flips: 0,
@@ -97,7 +103,7 @@ export function LocalPlayer({ layout, physics, sunRef }) {
   const board = useGame((s) => s.me?.board ?? 1)
   const trail = useGame((s) => s.me?.trail ?? 0)
   const glow = useGame((s) => s.me?.glow ?? 0)
-  const rebirths = useGame((s) => s.stats.rebirths)
+  const level = useGame((s) => s.stats.level)
 
   const controller = useMemo(() => new RiderController(physics, layout.spawn, layout.spawnRy), [physics, layout])
 
@@ -151,8 +157,12 @@ export function LocalPlayer({ layout, physics, sunRef }) {
       for (const e of events) {
         if (e === 'jump') audio.play('jump')
         else if (e === 'land' || e === 'grind') audio.play('land')
+        else if (e === 'brake') audio.play('brake')
       }
+      // Riding over a crumbling plank starts it shaking.
+      if (c.grounded && c.groundHandle >= 0 && physics.triggerCrumble(c.groundHandle)) audio.play('creak')
     }
+    physics.updateCrumbles(frameDt, c.pos)
 
     // ---- hazards ----
     tm.invuln = Math.max(0, tm.invuln - frameDt)
@@ -161,13 +171,12 @@ export function LocalPlayer({ layout, physics, sunRef }) {
       const hit = !fell && hitObstacle(layout, c.pos, serverSeconds())
       if (fell || hit) {
         audio.play(fell ? 'splash' : 'bonk')
-        const st = local.checkpoint > 0 ? layout.stages[local.checkpoint - 1] : null
-        c.teleport(st ? st.spawn : layout.spawn, Math.PI)
+        c.teleport(layout.spawn, Math.PI)
+        local.checkpoint = 0
         cameraRig.reset(Math.PI)
         tm.visualRy = Math.PI
         tm.invuln = 1
         net.send('respawn', {})
-        if (hit) game.toast('Ouch! Back to the start of the stage.', 'bad')
       }
     }
 
@@ -177,18 +186,13 @@ export function LocalPlayer({ layout, physics, sunRef }) {
     const cp = checkpointAt(layout, pos.x, pos.z)
     if (cp) local.checkpoint = cp
 
-    // Claim: send our latest position first so the server sees us on the pad,
-    // and retry while standing on it (the server ignores repeats once claimed).
+    // Win pads require an explicit E press. Send our latest position first so
+    // the authoritative server can validate the pad before awarding Wins.
     const pad = winPadAt(layout, pos.x, pos.y, pos.z)
     const padLocked = pad && pad.premium && !me?.pads?.includes(pad.id)
     if (pad && pad !== z.pad && padLocked) game.setPrompt({ kind: 'premium', id: pad.id })
-    if (!pad && z.pad && game.prompt?.kind === 'premium') game.setPrompt(null)
-    if (pad && !padLocked && (pad !== z.pad || tm.claimRetry <= 0)) {
-      sendMove(c, local)
-      net.send('claim', {})
-      tm.claimRetry = 0.5
-    }
-    tm.claimRetry -= frameDt
+    if (pad && pad !== z.pad && !padLocked) game.setPrompt({ kind: 'win', id: pad.id })
+    if (!pad && z.pad && (game.prompt?.kind === 'premium' || game.prompt?.kind === 'win')) game.setPrompt(null)
     z.pad = pad
 
     const tread = treadmillAt(layout, pos.x, pos.y, pos.z)
@@ -205,14 +209,26 @@ export function LocalPlayer({ layout, physics, sunRef }) {
       }
     }
     if (boardPad && boardPad !== z.board && me) {
-      if (me.boards.includes(boardPad.board)) {
-        if (me.board !== boardPad.board) net.send('equipBoard', { id: boardPad.board })
-      } else {
-        game.setPrompt({ kind: 'board', id: boardPad.board })
-      }
+      game.setPrompt({ kind: 'board', id: boardPad.board })
     }
     if (!boardPad && z.board && game.prompt?.kind === 'board') game.setPrompt(null)
     z.board = boardPad
+
+    // Locked boards, lobby treadmills and VIP items are deliberately collected
+    // with E when the rider is standing near them. The server still validates
+    // ownership, cost and the item id.
+    if (consumeInteract() && game.prompt) {
+      const prompt = game.prompt
+      if (prompt.kind === 'win') {
+        sendMove(c, local)
+        net.send('claim', {})
+      } else if (prompt.kind === 'board') {
+        const owned = me?.boards?.includes(Number(prompt.id))
+        net.send(owned ? 'equipBoard' : 'buyBoard', { id: Number(prompt.id) })
+      }
+      else if (prompt.kind === 'treadmill') net.send('buyTreadmill', { id: prompt.id })
+      else if (prompt.kind === 'premium') net.send('buyPremium', { id: prompt.id })
+    }
 
     const inShop = layout.shopRect ? inRect(layout.shopRect, pos.x, pos.z) : false
     if (inShop && !z.shop) game.openPanel('shop')
@@ -245,6 +261,7 @@ export function LocalPlayer({ layout, physics, sunRef }) {
     m.grinding = !!c.grind
     m.treadmill = !!ownsTread && c.grounded && c.speed < 1
     m.pushing = c.pushing
+    m.braking = c.braking && c.speed > 0.6
     m.flips = c.flips
     m.style = game.settings.style ?? 0
     m.lean += (Math.max(-1, Math.min(1, turnRate * 0.25)) - m.lean) * Math.min(1, frameDt * 8)
@@ -252,7 +269,7 @@ export function LocalPlayer({ layout, physics, sunRef }) {
     _local.copy(c.groundNormal).applyAxisAngle(_fwd.set(0, 1, 0), -tm.visualRy)
     m.normal.copy(_local)
 
-    audio.setMotion(Math.min(1, m.speed / 22), c.grounded, !!c.grind)
+    audio.setMotion(Math.min(1, m.speed / 22), c.grounded, !!c.grind, m.braking)
 
     // ---- shared state + network ----
     local.x = pos.x
@@ -261,7 +278,7 @@ export function LocalPlayer({ layout, physics, sunRef }) {
     local.ry = c.ry
     local.speed = m.speed
     local.stage = stageAtZ(layout, pos.z)
-    const anim = (c.grounded ? 1 : 0) | (c.grind ? 2 : 0) | (m.treadmill ? 4 : 0) | (c.pushing ? 8 : 0)
+    const anim = (c.grounded ? 1 : 0) | (c.grind ? 2 : 0) | (m.treadmill ? 4 : 0) | (c.pushing ? 8 : 0) | (m.braking ? 16 : 0)
     local.anim = anim
     local.flip = c.flips
     tm.send += frameDt
@@ -288,8 +305,8 @@ export function LocalPlayer({ layout, physics, sunRef }) {
         board={board}
         trail={trail}
         glow={glow}
+        level={level}
         name={name}
-        rebirths={rebirths}
         equipped={equipped}
         proportions={proportions}
         isLocal

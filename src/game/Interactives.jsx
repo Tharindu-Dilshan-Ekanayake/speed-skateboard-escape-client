@@ -1,16 +1,13 @@
-import { Text } from '@react-three/drei'
+import { Billboard, Text } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { useMemo, useRef } from 'react'
 import { AdditiveBlending, BoxGeometry, CanvasTexture, Color, MeshBasicMaterial, MeshStandardMaterial, RepeatWrapping, SRGBColorSpace } from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
-import { RARITIES, WORLD_UNLOCK_REBIRTHS, boardById, formatNum, rebirthWinsMult } from '../shared/config'
-
-/** Board tier -> rarity key, used for the card colour. */
-const boardRarity = (tier) => (tier < 2 ? 'common' : tier < 4 ? 'rare' : tier < 6 ? 'epic' : tier < 9 ? 'legendary' : 'mythic')
+import { BOARDS, WORLD_UNLOCK_REBIRTHS, boardById, formatNum, rebirthWinsMult } from '../shared/config'
 import { BOARD_PAD } from '../shared/layout'
 import { useGame } from '../state/store'
-import InfoCard from './InfoCard'
+import { tintedMaterial } from './materials'
 import Near from './Near'
 import Skateboard from './Skateboard'
 import { FONT_URL } from './World'
@@ -93,50 +90,88 @@ function Label({ position, text, sub, color = '#ffffff', subColor = '#ffe14d', s
 
 /* -------------------------------------------------------------- treadmills */
 
-let frameGeo = null
-/** All coloured frame parts of a treadmill merged into one geometry. */
-function treadmillFrameGeometry() {
-  if (frameGeo) return frameGeo
-  const parts = []
-  const box = (w, h, d, x, y, z) => {
-    const g = new BoxGeometry(w, h, d)
-    g.translate(x, y, z)
-    parts.push(g)
-  }
-  for (const s of [-1, 1]) {
-    box(0.24, 1.8, 0.24, s * 1.75, 1.1, -3.3)
-    box(0.18, 0.18, 2.8, s * 1.75, 1.15, -1.9)
-    box(0.2, 0.3, 6.8, s * 1.85, 0.32, 0)
-  }
-  box(3.7, 0.5, 0.5, 0, 2.05, -3.3)
-  frameGeo = mergeGeometries(parts)
-  return frameGeo
+/**
+ * Floating outlined text over a station, like a Roblox simulator: a big title,
+ * then one or two short status lines. Always faces the camera.
+ */
+function FloatText({ position, lines }) {
+  const ys = []
+  lines.reduce((y, l) => {
+    ys.push(y)
+    return y - (l.size || 0.32) * 1.05 - 0.04
+  }, 0)
+  return (
+    <Billboard position={position}>
+      {lines.map((l, i) => {
+        const size = l.size || 0.32
+        return (
+          <Text
+            key={i}
+            font={FONT_URL}
+            position={[0, ys[i], 0]}
+            fontSize={size}
+            color={l.color || '#ffffff'}
+            outlineColor="#1b1530"
+            outlineWidth={size * 0.12}
+            anchorX="center"
+            anchorY="middle"
+          >
+            {l.text}
+          </Text>
+        )
+      })}
+    </Billboard>
+  )
 }
 
-const frameMats = new Map()
-function frameMaterial(color) {
-  if (!frameMats.has(color)) frameMats.set(color, new MeshStandardMaterial({ color, roughness: 0.4 }))
-  return frameMats.get(color)
+let frameGeo = null
+let trimGeo = null
+/** Wooden stall: two posts, a top beam and the hand rails, merged. */
+function stallGeometries() {
+  if (frameGeo) return { frameGeo, trimGeo }
+  const wood = []
+  const trim = []
+  const add = (list, w, h, d, x, y, z) => {
+    const g = new BoxGeometry(w, h, d)
+    g.translate(x, y, z)
+    list.push(g)
+  }
+  for (const s of [-1, 1]) {
+    add(wood, 0.3, 4.4, 0.3, s * 2.05, 2.2, -3.55)
+    add(wood, 0.16, 0.16, 2.8, s * 1.75, 1.15, -1.9)
+    add(trim, 0.22, 0.32, 6.8, s * 1.9, 0.32, 0)
+  }
+  add(wood, 4.7, 0.45, 0.45, 0, 4.45, -3.55)
+  add(trim, 4.7, 0.18, 0.5, 0, 4.1, -3.55)
+  add(trim, 3.7, 0.45, 0.45, 0, 2.05, -3.3)
+  frameGeo = mergeGeometries(wood)
+  trimGeo = mergeGeometries(trim)
+  return { frameGeo, trimGeo }
 }
 
 const deckGeo = new BoxGeometry(3.8, 0.3, 6.8)
-const deckMat = new MeshStandardMaterial({ color: '#c9ccd8', roughness: 0.6 })
+const deckMat = new MeshStandardMaterial({ color: '#d8d4e4', roughness: 0.6 })
+const plainMats = new Map()
+function plainMat(color) {
+  if (!plainMats.has(color)) plainMats.set(color, new MeshStandardMaterial({ color, roughness: 0.45 }))
+  return plainMats.get(color)
+}
+
+const GREEN = '#5cff7a'
+const YELLOW = '#ffe14d'
+const RED = '#ff6b6b'
+const GRAY = '#c9c4dc'
 
 function Treadmill({ tm, owned, rebirths }) {
   const tex = getBeltTexture()
+  const { frameGeo: fg, trimGeo: tg } = stallGeometries()
   const locked = tm.lobby && rebirths < WORLD_UNLOCK_REBIRTHS[tm.world]
-  let status = 'FREE - hop on!'
-  let statusColor = '#2fc44a'
-  if (tm.lobby && tm.cost > 0) {
-    if (owned) status = 'OWNED - hop on!'
-    else if (locked) {
-      status = `LOCKED · ${WORLD_UNLOCK_REBIRTHS[tm.world]} Rebirths`
-      statusColor = '#6b6890'
-    } else {
-      status = `${formatNum(tm.cost)} Wins`
-      statusColor = '#ff9a1f'
-    }
-  }
+  const usable = !tm.cost || owned
+  let sub
+  if (usable) sub = { text: owned && tm.cost ? 'OWNED · STEP ON TO TRAIN' : 'STEP ON TO TRAIN', color: GREEN }
+  else if (locked) sub = { text: `REQUIRES ${WORLD_UNLOCK_REBIRTHS[tm.world]} REBIRTHS`, color: RED }
+  else sub = { text: `${formatNum(tm.cost)} WINS REQUIRED · PRESS E`, color: YELLOW }
+  const title = `${tm.premium ? 'VIP ' : ''}x${formatNum(tm.mult)} SPEED`
   return (
     <group position={tm.p}>
       <mesh geometry={deckGeo} material={deckMat} position={[0, 0.15, 0]} receiveShadow castShadow />
@@ -144,114 +179,64 @@ function Treadmill({ tm, owned, rebirths }) {
         <planeGeometry args={[3.1, 6.2]} />
         <meshStandardMaterial map={tex} roughness={0.9} />
       </mesh>
-      <mesh geometry={treadmillFrameGeometry()} material={frameMaterial(tm.color)} castShadow />
-      <mesh position={[0, 2.1, -3.04]}>
-        <planeGeometry args={[1.4, 0.32]} />
-        <meshBasicMaterial color={owned ? '#1a3a2a' : '#3a1a1a'} />
-      </mesh>
-      {tm.cost > 0 && !owned ? (
-        <mesh position={[0, 0.45, 0]}>
-          <boxGeometry args={[3.9, 0.08, 6.9]} />
-          <meshBasicMaterial color="#ff3b3b" transparent opacity={0.35} />
+      <mesh geometry={fg} material={tintedMaterial('wood', '#b8783f')} castShadow />
+      <mesh geometry={tg} material={plainMat(tm.premium ? '#ffc21f' : tm.color)} castShadow />
+      {!usable ? (
+        <mesh position={[0, 0.34, 0]}>
+          <boxGeometry args={[3.9, 0.06, 6.9]} />
+          <meshBasicMaterial color={locked ? '#6b6890' : '#ff3b3b'} transparent opacity={0.4} depthWrite={false} />
         </mesh>
       ) : null}
-      {tm.lobby ? (
-        <InfoCard
-          position={[0, 4.6, -2.4]}
-          anchor={tm.p}
-          miniY={-1.2}
-          accent={tm.color}
-          title={`x${formatNum(tm.mult)} SPEED`}
-          tag="TREADMILL"
-          lines={[{ text: 'Trains speed while you stand', color: '#c9c4ff' }]}
-          status={status}
-          statusColor={statusColor}
-          width={4.6}
-          seed={tm.p[0]}
-        />
-      ) : (
-        <Label
-          position={[0, 3.6, -3.3]}
-          text={!tm.premium ? 'FREE' : owned ? 'VIP - OWNED' : `VIP · ${formatNum(tm.cost)} Wins`}
-          sub={`x${formatNum(tm.mult)} Speed`}
-          color={!tm.premium ? '#5cff7a' : '#ffc21f'}
-          subColor="#ffffff"
-          size={0.6}
-        />
-      )}
+      <FloatText position={[0, 5.4, -3.55]} lines={[{ text: title, size: 0.62, color: usable ? GREEN : '#ffffff' }, sub]} />
     </group>
   )
 }
 
 /* ------------------------------------------------------------- board pads */
 
-function BoardPad({ bp, owned, equipped, rebirths }) {
+function BoardPad({ bp, owned, equipped, next, rebirths }) {
   const spin = useRef(null)
   const def = boardById(bp.board)
   useFrame((state) => {
     if (!spin.current) return
     spin.current.rotation.y = state.clock.elapsedTime * 0.9 + bp.board
-    spin.current.position.y = 1.4 + Math.sin(state.clock.elapsedTime * 2 + bp.board) * 0.12
+    spin.current.position.y = 1.35 + Math.sin(state.clock.elapsedTime * 2 + bp.board) * 0.1
   })
-  const locked = def.world > 0 && rebirths < WORLD_UNLOCK_REBIRTHS[def.world]
-  const color = equipped ? '#38f05a' : owned ? '#2fc4ff' : '#ff3b3b'
-  const status = equipped ? 'Equipped' : owned ? 'Owned - step to equip' : `${formatNum(def.cost)} Wins required`
-  const rarity = RARITIES[boardRarity(def.tier)]
-  let cardStatus = `${formatNum(def.cost)} Wins`
-  let cardColor = '#ff9a1f'
+  const worldLocked = def.world > 0 && rebirths < WORLD_UNLOCK_REBIRTHS[def.world]
+  let plate = '#8a86a0'
+  let status = { text: 'LOCKED', color: GRAY }
   if (equipped) {
-    cardStatus = 'EQUIPPED'
-    cardColor = '#2fc44a'
+    plate = '#38c95a'
+    status = { text: 'EQUIPPED', color: GREEN }
   } else if (owned) {
-    cardStatus = 'OWNED - step to equip'
-    cardColor = '#2f8cff'
-  } else if (locked) {
-    cardStatus = `LOCKED · ${WORLD_UNLOCK_REBIRTHS[def.world]} Rebirths`
-    cardColor = '#6b6890'
-  } else if (def.cost === 0) {
-    cardStatus = 'FREE'
-    cardColor = '#2fc44a'
+    plate = '#2f8cff'
+    status = { text: 'OWNED · PRESS E TO EQUIP', color: '#7fd8ff' }
+  } else if (worldLocked) {
+    status = { text: `REQUIRES ${WORLD_UNLOCK_REBIRTHS[def.world]} REBIRTHS`, color: RED }
+  } else if (next) {
+    plate = '#ffb31f'
+    status = { text: 'NEXT UPGRADE · PRESS E', color: YELLOW }
   }
+  const need = def.cost > 0 ? `${formatNum(def.cost)} ${def.cost === 1 ? 'WIN' : 'WINS'} REQUIRED` : 'FREE'
   return (
     <group position={bp.p}>
       <mesh position={[0, 0.15, 0]} receiveShadow>
         <boxGeometry args={[BOARD_PAD.x, 0.3, BOARD_PAD.z]} />
-        <meshStandardMaterial color={color} emissive={new Color(color)} emissiveIntensity={0.55} roughness={0.5} />
+        <meshStandardMaterial color={plate} emissive={new Color(plate)} emissiveIntensity={equipped || next ? 0.35 : 0.1} roughness={0.5} />
       </mesh>
-      <group ref={spin} position={[0, 1.4, 0]} scale={1.9} rotation={[0.35, 0, 0]}>
+      <group ref={spin} position={[0, 1.35, 0]} scale={1.7} rotation={[0.35, 0, 0]}>
         <group rotation={[0, 0, 0.2]}>
           <Skateboard board={bp.board} castShadow={false} />
         </group>
       </group>
-      <InfoCard
-        position={[0, 4.4, 0]}
-        anchor={bp.p}
-        miniY={-1.3}
-        accent={rarity.color}
-        title={def.name}
-        tag={rarity.name.toUpperCase()}
+      <FloatText
+        position={[0, 3.45, 0]}
         lines={[
-          { text: `+${formatNum(def.bonus)} Speed per push`, color: '#5cff7a' },
-          { text: `+${def.move.toFixed(1)} top speed`, color: '#3fe8ff' },
+          { text: `+${formatNum(def.bonus)} SPEED`, size: 0.5, color: owned ? GREEN : '#ffffff' },
+          { text: owned ? def.name.toUpperCase() : need, size: 0.27, color: owned ? '#ffffff' : YELLOW },
+          { text: status.text, size: 0.25, color: status.color },
         ]}
-        status={cardStatus}
-        statusColor={cardColor}
-        width={4.4}
-        seed={bp.board}
       />
-      <Text
-        font={FONT_URL}
-        position={[0, 0.32, BOARD_PAD.z / 2 - 0.15]}
-        rotation={[-Math.PI / 2.6, 0, 0]}
-        fontSize={0.36}
-        color={equipped || owned ? '#ffffff' : '#ffe14d'}
-        outlineColor="#1b1530"
-        outlineWidth={0.04}
-        anchorX="center"
-        anchorY="middle"
-      >
-        {locked ? 'Locked' : status}
-      </Text>
     </group>
   )
 }
@@ -494,6 +479,8 @@ export function Interactives({ layout }) {
   const ownedBoards = useMemo(() => new Set(me?.boards || [1]), [me?.boards])
   const equippedBoard = me?.board ?? 1
   const ownedPads = useMemo(() => new Set(me?.pads || []), [me?.pads])
+  // Boards unlock in order: the first one you don't own is the next upgrade.
+  const nextBoard = useMemo(() => BOARDS.find((b) => !ownedBoards.has(b.id))?.id ?? -1, [ownedBoards])
 
   // One shared belt texture: scroll it once per frame for every treadmill.
   useFrame((_, dt) => {
@@ -510,7 +497,7 @@ export function Interactives({ layout }) {
       ))}
       {layout.boardPads.map((bp) => (
         <Near key={bp.board} at={bp.p} radius={220}>
-          <BoardPad bp={bp} owned={ownedBoards.has(bp.board)} equipped={equippedBoard === bp.board} rebirths={rebirths} />
+          <BoardPad bp={bp} owned={ownedBoards.has(bp.board)} equipped={equippedBoard === bp.board} next={nextBoard === bp.board} rebirths={rebirths} />
         </Near>
       ))}
       {layout.winPads.map((pad) => (

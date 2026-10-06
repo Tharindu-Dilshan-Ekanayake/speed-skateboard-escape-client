@@ -9,6 +9,7 @@ export const input = {
   stick: { x: 0, y: 0, active: false },
   jumpQueued: false,
   jumpHeld: false,
+  interactQueued: false,
 }
 
 const KEY_MAP = {
@@ -43,6 +44,13 @@ export function consumeJump() {
   return j
 }
 
+/** Returns true once per interaction key press. */
+export function consumeInteract() {
+  const action = input.interactQueued
+  input.interactQueued = false
+  return action
+}
+
 let installed = false
 export function installKeyboard(onFirstGesture) {
   if (installed) return
@@ -59,6 +67,7 @@ export function installKeyboard(onFirstGesture) {
       if (!e.repeat) pressJump()
       e.preventDefault()
     }
+    if (e.code === 'KeyE' && !e.repeat) input.interactQueued = true
   }
   const keyup = (e) => {
     const action = KEY_MAP[e.code]
@@ -71,6 +80,7 @@ export function installKeyboard(onFirstGesture) {
     input.stick.y = 0
     input.stick.active = false
     input.jumpHeld = false
+    input.interactQueued = false
   }
   window.addEventListener('keydown', keydown)
   window.addEventListener('keyup', keyup)

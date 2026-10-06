@@ -450,6 +450,22 @@ export function poseSkater(rig, m) {
     return
   }
 
+  if (m.braking) {
+    // Powerslide: deep, wide crouch, weight on the back, arms out for balance.
+    sway(rig, 'LegL1', -0.45)
+    sway(rig, 'LegR1', 0.45)
+    swing(rig, 'LegL1', -0.95)
+    swing(rig, 'LegL2', 1.6)
+    swing(rig, 'LegR1', -0.75)
+    swing(rig, 'LegR2', 1.35)
+    swing(rig, 'Spine1', -0.1)
+    sway(rig, 'ArmL1', -1.35)
+    sway(rig, 'ArmR1', 1.15)
+    swing(rig, 'ArmR1', -0.4)
+    rig.root.position.y = rig.rootRestY - 0.7
+    return
+  }
+
   const u = m.pushU ?? -1
   if (u >= 0) {
     // Kick-push. Front leg stays on the board and bends; back leg strikes the

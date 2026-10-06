@@ -70,6 +70,24 @@ const dotsTexture = () =>
     }
   })
 
+/** Earth cliffs: soft strata bands with pebbles and a few roots. */
+const dirtTexture = () =>
+  canvasTexture(128, (g, s) => {
+    g.fillStyle = '#ffffff'
+    g.fillRect(0, 0, s, s)
+    const bands = [0, 22, 40, 70, 92, 110]
+    bands.forEach((y, i) => {
+      g.fillStyle = i % 2 ? 'rgba(70,30,0,0.12)' : 'rgba(255,230,190,0.10)'
+      g.fillRect(0, y, s, 14 + (i % 3) * 4)
+    })
+    for (let i = 0; i < 70; i += 1) {
+      const x = (i * 53) % s
+      const y = (i * 29 + (i % 7) * 11) % s
+      g.fillStyle = i % 3 ? 'rgba(60,25,0,0.28)' : 'rgba(255,240,210,0.30)'
+      g.fillRect(x, y, 3 + (i % 3), 3 + ((i >> 1) % 3))
+    }
+  })
+
 const woodTexture = () =>
   canvasTexture(128, (g, s) => {
     g.fillStyle = '#ffffff'
@@ -165,11 +183,18 @@ export function getMaterials() {
   const dots = dotsTexture()
   const wood = woodTexture()
   const water = waterTexture()
+  const dirt = dirtTexture()
   cache = {
     stud: applyTriplanar(new MeshStandardMaterial({ map: stud, roughness: 0.82, metalness: 0 }), 1 / 1.6),
     dots: applyTriplanar(new MeshStandardMaterial({ map: dots, roughness: 0.92, metalness: 0 }), 1 / 3.2),
     wood: applyTriplanar(new MeshStandardMaterial({ map: wood, roughness: 0.9, metalness: 0 }), 1 / 2.5),
+    dirt: applyTriplanar(new MeshStandardMaterial({ map: dirt, roughness: 0.95, metalness: 0 }), 1 / 4),
     plain: new MeshStandardMaterial({ roughness: 0.6, metalness: 0.05 }),
+    // Floor markings: pulled toward the camera in the depth buffer so they never
+    // flicker against the floor they lie on, even far away.
+    decal: new MeshStandardMaterial({ roughness: 0.7, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }),
+    // Roads/bridges built as one mesh (`ribbon`): colours come from the vertices.
+    ribbon: applyTriplanar(new MeshStandardMaterial({ map: stud, roughness: 0.82, metalness: 0, vertexColors: true }), 1 / 1.6),
     // Lamps, headlights, neon windows: unlit, tinted per instance.
     glow: new MeshBasicMaterial({ color: '#ffffff' }),
     rock: new MeshStandardMaterial({ roughness: 0.95, metalness: 0, flatShading: true }),
@@ -187,4 +212,23 @@ export function getMaterials() {
     waterTexture: water,
   }
   return cache
+}
+
+const tinted = new Map()
+/**
+ * A copy of one of the shared textured materials with a solid colour, for
+ * single (non-instanced) meshes. Keeps the world-space texture mapping.
+ */
+export function tintedMaterial(key, color) {
+  const id = `${key}|${color}`
+  if (!tinted.has(id)) {
+    const base = getMaterials()[key]
+    const m = base.clone()
+    m.color.set(color)
+    m.onBeforeCompile = base.onBeforeCompile
+    m.customProgramCacheKey = base.customProgramCacheKey
+    m.userData.tpScale = base.userData.tpScale
+    tinted.set(id, m)
+  }
+  return tinted.get(id)
 }

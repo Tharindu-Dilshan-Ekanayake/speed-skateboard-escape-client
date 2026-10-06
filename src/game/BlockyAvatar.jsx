@@ -34,6 +34,12 @@ export function BlockyAvatar({ motionRef, shirt = '#1d1d24', pants = '#24323a', 
       back = -0.9
       front = -0.9
       arm = 1.15
+    } else if (m.braking) {
+      drop = 0.32
+      back = -0.85
+      front = -0.6
+      spread = 0.42
+      arm = 1.25
     } else if (u >= 0) {
       spread = 0.08
       front = -0.55

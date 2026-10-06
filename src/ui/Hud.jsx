@@ -6,10 +6,7 @@ import { isTouchDevice } from '../game/controls'
 import { net } from '../net/session'
 import {
   LOBBY_TREADMILLS,
-  RECOMMENDED_LEVEL,
   SPEED_PACKS,
-  STAGE_NAMES,
-  STAGES_PER_WORLD,
   boardById,
   boostCost,
   formatNum,
@@ -56,7 +53,7 @@ function Stats() {
 
 /** Menu buttons: brick blocks with a grass cap, like the park walls. */
 const MENU = [
-  { id: 'shop', label: 'Shop', Icon: BasketIcon, tint: 'linear-gradient(160deg, #ff8ab4, #ff2f6d)', key: 'E', tag: 'OP!' },
+  { id: 'shop', label: 'Shop', Icon: BasketIcon, tint: 'linear-gradient(160deg, #ff8ab4, #ff2f6d)', key: 'O', tag: 'OP!' },
   { id: 'backpack', label: 'Backpack', Icon: BackpackIcon, tint: 'linear-gradient(160deg, #ffc46b, #f07a1f)', key: 'B' },
   { id: 'rebirth', label: 'Rebirth', Icon: RebirthIcon, tint: 'linear-gradient(160deg, #6fd8ff, #1f7bff)', key: 'R' },
   { id: 'teleport', label: 'Teleport', Icon: GemIcon, tint: 'linear-gradient(160deg, #d98aff, #8a2bff)', key: 'T' },
@@ -91,7 +88,7 @@ function Menu() {
 }
 
 /** Keyboard shortcuts for the menu (shown as keycaps on the buttons). */
-function useHotkeys(dev) {
+function useHotkeys() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
@@ -101,12 +98,6 @@ function useHotkeys(dev) {
       if (e.code === 'Escape') {
         if (game.panel) game.closePanel()
         else if (game.prompt) game.setPrompt(null)
-        return
-      }
-      if ((e.code === 'Backquote' || e.code === 'F2') && dev) {
-        e.preventDefault()
-        click()
-        game.openPanel('dev')
         return
       }
       if (e.code === 'KeyP') {
@@ -122,7 +113,7 @@ function useHotkeys(dev) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [dev])
+  }, [])
 }
 
 function Quest() {
@@ -137,29 +128,10 @@ function Quest() {
   )
 }
 
-/** "Lobby" / "Stage 3 · Recommended Level 4", polled from the frame loop. */
-function Where() {
-  const world = useGame((s) => s.stats.world)
-  const [stage, setStage] = useState(0)
-  useEffect(() => {
-    const t = setInterval(() => setStage(live.local.stage), 300)
-    return () => clearInterval(t)
-  }, [])
-  const text =
-    stage === 0
-      ? world === 0
-        ? 'Lobby'
-        : 'Neon City Lobby'
-      : `Stage ${stage + world * STAGES_PER_WORLD}: ${STAGE_NAMES[world][stage - 1]}  ·  Recommended Level ${RECOMMENDED_LEVEL[world][stage - 1]}`
-  return <div className="where stroke-thin">{text}</div>
-}
-
 /** Top-right: the player's Bloxity avatar + name. Opens settings / login. */
 function ProfileChip() {
-  const { identity, isLoggedIn } = useBloxity()
+  const { identity } = useBloxity()
   const openPanel = useGame((s) => s.openPanel)
-  const level = useGame((s) => s.stats.level)
-  const dev = useGame((s) => !!s.me?.dev)
   const name = identity?.displayName || identity?.username || 'Player'
   const [imgOk, setImgOk] = useState(true)
   return (
@@ -167,7 +139,7 @@ function ProfileChip() {
       <button
         type="button"
         className="profile"
-        title="Profile & settings (P)"
+        title="Settings (P)"
         onClick={() => {
           click()
           openPanel('settings')
@@ -178,24 +150,8 @@ function ProfileChip() {
         ) : (
           <span className="pfp-fallback">{name.charAt(0).toUpperCase()}</span>
         )}
-        <span className="pinfo">
-          <span className="pname stroke-thin">{name}</span>
-          <span className="psub">{isLoggedIn ? `Level ${level}` : 'Guest · tap to log in'}</span>
-        </span>
+        <span className="pname stroke-thin">{name}</span>
       </button>
-      {dev ? (
-        <button
-          type="button"
-          className="devbtn"
-          title="Developer tools (` or F2)"
-          onClick={() => {
-            click()
-            openPanel('dev')
-          }}
-        >
-          DEV
-        </button>
-      ) : null}
     </div>
   )
 }
@@ -392,107 +348,63 @@ function Toasts() {
 }
 
 /** Buy prompt when standing on a locked board pad or treadmill. */
+/**
+ * Small action pill above the level bar ("[E] Claim Wins · +4"), shown when you
+ * stand on a pad, board or treadmill. Click it or press E. Never covers the game.
+ */
 function Prompt() {
   const prompt = useGame((s) => s.prompt)
   const wins = useGame((s) => s.stats.wins)
+  const boards = useGame((s) => s.me?.boards)
   if (!prompt) return null
-  let title = ''
-  let sub = ''
+  let label = ''
   let cost = 0
   let action = null
-  if (prompt.kind === 'board') {
+  let tone = 'green'
+  if (prompt.kind === 'win') {
+    label = 'Claim Wins'
+    action = () => net.send('claim', {})
+  } else if (prompt.kind === 'board') {
     const b = boardById(prompt.id)
-    title = `${b.name} Board`
-    sub = `+${formatNum(b.bonus)} Speed per push`
-    cost = b.cost
-    action = () => net.send('buyBoard', { id: b.id })
+    const owned = boards?.includes(b.id)
+    label = owned ? `Equip ${b.name}` : `Buy ${b.name}`
+    cost = owned ? 0 : b.cost
+    tone = owned ? 'blue' : 'gold'
+    action = () => net.send(owned ? 'equipBoard' : 'buyBoard', { id: b.id })
   } else if (prompt.kind === 'treadmill') {
-    const m = /^t(\d)_(\d)$/.exec(prompt.id)
+    const m = /^t(d)_(d)$/.exec(prompt.id)
     const def = m ? LOBBY_TREADMILLS[Number(m[1])][Number(m[2])] : null
     if (!def) return null
-    title = `x${formatNum(def.mult)} Treadmill`
-    sub = 'Trains speed while you stand on it'
+    label = `Unlock x${formatNum(def.mult)} Treadmill`
     cost = def.cost
+    tone = 'gold'
     action = () => net.send('buyTreadmill', { id: prompt.id })
   } else if (prompt.kind === 'premium') {
     const entry = premiumItem(prompt.id)
     if (!entry) return null
-    const it = entry.item
-    title = entry.kind === 'pad' ? `VIP Win Pad: +${formatNum(it.wins)} Wins` : `VIP Treadmill: x${formatNum(it.mult)} Speed`
-    sub = entry.kind === 'pad' ? 'Triple wins on this stage, every run - forever' : 'Unlock once, train here forever'
-    cost = it.cost
+    label = entry.kind === 'pad' ? 'Unlock VIP Pad (x3 Wins)' : `Unlock VIP x${formatNum(entry.item.mult)} Treadmill`
+    cost = entry.item.cost
+    tone = 'gold'
     action = () => net.send('buyPremium', { id: prompt.id })
   }
+  const short = cost > 0 && wins < cost
   return (
-    <div className="prompt">
-      <div className="ptxt">
-        {title}
-        <small>{sub}</small>
-      </div>
-      <button
-        type="button"
-        className="gbtn c-green stroke-thin"
-        disabled={wins < cost}
-        onClick={() => {
-          click()
-          action()
-        }}
-      >
-        <TrophyIcon /> {formatNum(cost)}
-      </button>
-      <button
-        type="button"
-        className="gbtn c-red stroke-thin"
-        style={{ minWidth: '4rem' }}
-        onClick={() => useGame.getState().setPrompt(null)}
-      >
-        X
-      </button>
-    </div>
-  )
-}
-
-/**
- * Developer-only bar along the bottom edge: jump between stages and worlds,
- * set a level, add Wins. Only shown when the server marks you as a developer
- * (never on the prod channel unless listed in DEV_ACCOUNTS).
- */
-function DevBar() {
-  const world = useGame((s) => s.stats.world)
-  const [w, setW] = useState(world)
-  const go = (stage) => {
-    click()
-    net.send('devtp', { world: w, stage })
-  }
-  return (
-    <div className="devbar pe">
-      <span className="devtag">DEV</span>
-      <button type="button" className={`dbtn${w === 0 ? ' on' : ''}`} onClick={() => setW(0)}>
-        W1
-      </button>
-      <button type="button" className={`dbtn${w === 1 ? ' on' : ''}`} onClick={() => setW(1)}>
-        W2
-      </button>
-      <span className="dsep" />
-      <button type="button" className="dbtn" onClick={() => go(0)}>
-        Lobby
-      </button>
-      {Array.from({ length: STAGES_PER_WORLD }, (_, i) => (
-        <button key={i} type="button" className="dbtn" title={STAGE_NAMES[w][i]} onClick={() => go(i + 1)}>
-          {i + 1 + w * STAGES_PER_WORLD}
-        </button>
-      ))}
-      <span className="dsep" />
-      <button type="button" className="dbtn" onClick={() => (click(), net.send('devlevel', { level: 25 }))}>
-        Lv25
-      </button>
-      <button type="button" className="dbtn" onClick={() => (click(), net.send('devlevel', { level: 0 }))}>
-        Lv0
-      </button>
-      <button type="button" className="dbtn" onClick={() => (click(), net.send('devwins', { n: 10000 }))}>
-        +10K Wins
-      </button>
-    </div>
+    <button
+      type="button"
+      className={`prompt-pill pe tone-${tone}${short ? ' short' : ''}`}
+      onClick={() => {
+        click()
+        action()
+      }}
+    >
+      <span className="kbd">E</span>
+      <span className="plabel stroke-thin">{label}</span>
+      {cost > 0 ? (
+        <span className="pcost stroke-thin">
+          <TrophyIcon /> {formatNum(cost)}
+        </span>
+      ) : null}
+    </button>
   )
 }
 
@@ -508,14 +420,12 @@ function Reconnecting() {
 
 export function Hud() {
   const [touch] = useState(isTouchDevice)
-  const dev = useGame((st) => !!st.me?.dev)
-  useHotkeys(dev)
+  useHotkeys()
   return (
-    <div className={`hud${touch ? ' touch' : ''}${dev ? ' has-dev' : ''}`}>
+    <div className={`hud${touch ? ' touch' : ''}`}>
       <Stats />
       <Menu />
       <Quest />
-      <Where />
       <ProfileChip />
       <RightColumn />
       <Bottom />
@@ -527,7 +437,6 @@ export function Hud() {
       <Toasts />
       <Prompt />
       <Reconnecting />
-      {dev ? <DevBar /> : null}
       {touch ? <TouchControls /> : null}
       <Panels />
     </div>

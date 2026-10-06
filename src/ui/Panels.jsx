@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 
-import { useBloxity } from '../bloxity/BloxityContext'
 import { audio } from '../game/audio'
 import { net } from '../net/session'
 import {
@@ -13,8 +12,9 @@ import {
   MAX_LEVEL,
   PLAYTIME_GIFTS,
   RARITIES,
-  STAGE_NAMES,
-  STAGES_PER_WORLD,
+  stageCount,
+  stageNumber,
+  teleportCost,
   TRAILS,
   WORLD_NAMES,
   WORLD_UNLOCK_REBIRTHS,
@@ -173,8 +173,13 @@ function ShopPanel() {
         <button type="button" className={`tab c-blue${tab === 'glows' ? ' on' : ''}`} title="Glows" onClick={() => (click(), setTab('glows'))}>
           <GlowIcon />
         </button>
+        <button type="button" className={`tab c-red${tab === 'trails' ? ' on' : ''}`} title="Trails" onClick={() => (click(), setTab('trails'))}>
+          <TrailIcon />
+        </button>
       </div>
-      {tab === 'charms' ? <CharmShop /> : <GlowsTab me={me} />}
+      {tab === 'charms' ? <CharmShop /> : null}
+      {tab === 'glows' ? <GlowsTab me={me} /> : null}
+      {tab === 'trails' ? <TrailsTab me={me} /> : null}
     </Panel>
   )
 }
@@ -500,23 +505,33 @@ function TeleportPanel() {
           Skateboards
         </button>
         <button type="button" className="gbtn c-pink stroke-thin" onClick={() => go({ to: 'shop' })}>
-          Charms Shop
+          Shop
         </button>
       </div>
-      <div className="section-title">Stages</div>
+      <div className="section-title">Stages · a small fee in Wins</div>
       <div className="tp-grid">
-        {Array.from({ length: STAGES_PER_WORLD }, (_, i) => {
+        {Array.from({ length: stageCount(w) }, (_, i) => {
           const stage = i + 1
           const open = stage <= me.maxStage[w]
+          const cost = teleportCost(w, stage)
           return (
             <button
               key={stage}
               type="button"
               className={`gbtn stroke-thin ${open ? 'c-purple' : 'c-gray'}`}
-              disabled={!open}
+              disabled={!open || me.wins < cost}
               onClick={() => go({ to: 'stage', stage })}
             >
-              {open ? null : <LockIcon />} Stage {stage + w * STAGES_PER_WORLD}
+              <span className="dev-stage">
+                <span>
+                  {open ? null : <LockIcon />} Stage {stageNumber(w, stage)}
+                </span>
+                {open ? (
+                  <small>
+                    <TrophyIcon /> {formatNum(cost)}
+                  </small>
+                ) : null}
+              </span>
             </button>
           )
         })}
@@ -640,8 +655,6 @@ function Toggle({ on, onClick }) {
 function SettingsPanel() {
   const settings = useGame((s) => s.settings)
   const update = useGame((s) => s.updateSettings)
-  const { isLoggedIn, identity, login, logout, isReady } = useBloxity()
-  const name = identity?.displayName || identity?.username || 'Guest'
   return (
     <Panel title="Settings" Icon={GearIcon}>
       <div className="set-row">
@@ -703,77 +716,13 @@ function SettingsPanel() {
           {settings.quality === 'high' ? 'HIGH' : 'LOW'}
         </button>
       </div>
-      <div className="set-row">
-        <span>
-          {name}
-          <div className="hint">{isLoggedIn ? 'Signed in with Bloxity - progress saved to your account' : 'Playing as guest - log in to keep progress everywhere'}</div>
-        </span>
-        {isLoggedIn ? (
-          <button type="button" className="gbtn c-gray stroke-thin" onClick={logout}>
-            Log out
-          </button>
-        ) : (
-          <button type="button" className="gbtn c-purple stroke-thin" disabled={!isReady} onClick={login}>
-            Log in
-          </button>
-        )}
-      </div>
       <div className="section-title">Controls</div>
       <div className="keys">
-        W A S D / Arrows - skate · Space - jump &amp; kickflip · Land on rails to grind
+        W A S D / Arrows - skate · S (or W when rolling backwards) - brake &amp; powerslide · Space - jump &amp; kickflip · Land on rails to grind
         <br />
         Drag - look around · Scroll / pinch - zoom · Stand on treadmills to train speed
         <br />
         E Shop · B Backpack · R Rebirth · T Teleport · M Worlds · G Rewards · P Profile · Esc close
-      </div>
-    </Panel>
-  )
-}
-
-/* ------------------------------------------------------------ dev tools */
-
-/** Developer-only: jump to any stage of any world, set your level. */
-function DevPanel() {
-  const me = useGame((s) => s.me)
-  const close = useGame((s) => s.closePanel)
-  if (!me?.dev) return null
-  const go = (world, stage) => {
-    click()
-    net.send('devtp', { world, stage })
-    close()
-  }
-  return (
-    <Panel title="Dev Tools" Icon={GearIcon}>
-      {WORLD_NAMES.map((wn, w) => (
-        <div key={wn}>
-          <div className="section-title">
-            World {w + 1} · {wn}
-          </div>
-          <div className="tp-grid dev-grid">
-            <button type="button" className="gbtn c-green stroke-thin" onClick={() => go(w, 0)}>
-              Lobby
-            </button>
-            {STAGE_NAMES[w].map((name, i) => (
-              <button key={name} type="button" className={`gbtn stroke-thin ${w === 0 ? 'c-purple' : 'c-blue'}`} onClick={() => go(w, i + 1)}>
-                <span className="dev-stage">
-                  Stage {i + 1 + w * STAGES_PER_WORLD}
-                  <small>{name}</small>
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
-      <div className="section-title">Set level (tests the speed gaps)</div>
-      <div className="center-row" style={{ flexWrap: 'wrap', marginTop: 0 }}>
-        {[0, 5, 10, 15, 20, 25].map((level) => (
-          <button key={level} type="button" className="gbtn c-orange stroke-thin" style={{ minWidth: '6rem' }} onClick={() => (click(), net.send('devlevel', { level }))}>
-            Lv {level}
-          </button>
-        ))}
-      </div>
-      <div className="keys" style={{ marginTop: '1rem', textAlign: 'center' }}>
-        Only developers see this panel. Shortcut: ` or F2.
       </div>
     </Panel>
   )
@@ -789,7 +738,6 @@ const PANELS = {
   worlds: WorldsPanel,
   rewards: RewardsPanel,
   settings: SettingsPanel,
-  dev: DevPanel,
 }
 
 export function Panels() {

@@ -60,6 +60,7 @@ function RemoteRider({ id }) {
     grounded: true,
     grinding: false,
     pushing: false,
+    braking: false,
     treadmill: false,
     lean: 0,
     flips: 0,
@@ -67,7 +68,7 @@ function RemoteRider({ id }) {
   })
   const [meta, setMeta] = useState(() => {
     const r = live.remotes.get(id)
-    return r ? { name: r.name, board: r.board, trail: r.trail, glow: r.glow, rebirths: r.rebirths, look: r.look, lookParsed: r.lookParsed } : null
+    return r ? { name: r.name, board: r.board, trail: r.trail, glow: r.glow, level: r.level, rebirths: r.rebirths, look: r.look, lookParsed: r.lookParsed } : null
   })
   const metaRef = useRef(meta)
 
@@ -77,8 +78,8 @@ function RemoteRider({ id }) {
     if (!rec || !g) return
 
     const m0 = metaRef.current
-    if (!m0 || m0.name !== rec.name || m0.board !== rec.board || m0.trail !== rec.trail || m0.glow !== rec.glow || m0.rebirths !== rec.rebirths || m0.look !== rec.look) {
-      const next = { name: rec.name, board: rec.board, trail: rec.trail, glow: rec.glow, rebirths: rec.rebirths, look: rec.look, lookParsed: rec.lookParsed }
+    if (!m0 || m0.name !== rec.name || m0.board !== rec.board || m0.trail !== rec.trail || m0.glow !== rec.glow || m0.level !== rec.level || m0.rebirths !== rec.rebirths || m0.look !== rec.look) {
+      const next = { name: rec.name, board: rec.board, trail: rec.trail, glow: rec.glow, level: rec.level, rebirths: rec.rebirths, look: rec.look, lookParsed: rec.lookParsed }
       metaRef.current = next
       setMeta(next)
     }
@@ -110,6 +111,7 @@ function RemoteRider({ id }) {
     m.grinding = (s.a & 2) === 2
     m.treadmill = (s.a & 4) === 4
     m.pushing = (s.a & 8) === 8
+    m.braking = (s.a & 16) === 16
     m.flips = s.f
     m.style = rec.style ?? 0
   })
@@ -122,8 +124,8 @@ function RemoteRider({ id }) {
         board={meta.board}
         trail={meta.trail}
         glow={meta.glow}
+        level={meta.level}
         name={meta.name}
-        rebirths={meta.rebirths}
         equipped={meta.lookParsed?.equipped || null}
         proportions={meta.lookParsed?.proportions || null}
       />

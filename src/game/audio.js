@@ -47,8 +47,14 @@ class AudioEngine {
       const data = this.noise.getChannelData(0)
       for (let i = 0; i < len; i += 1) data[i] = Math.random() * 2 - 1
 
-      this.roll = this.makeLoop(400, 0.7, 'lowpass')
+      // Urethane wheels on concrete: a growl that flutters at the rate the
+      // wheels spin ("brrrrr"), over a soft low rumble from the ground.
+      this.wheel = this.makeWheel()
+      this.rumble = this.makeLoop(110, 0.7, 'lowpass')
+      this.nextJoint = 0
+      this.jointFlip = 0
       this.grind = this.makeLoop(3200, 6, 'bandpass')
+      this.scrub = this.makeLoop(1400, 1.4, 'bandpass')
       this.startMusic()
     }
     if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {})
@@ -65,6 +71,41 @@ class AudioEngine {
   }
 
   /* ------------------------------------------------------------ building */
+
+  /**
+   * Rolling-wheel voice: looping noise shaped like a skate wheel's growl, whose
+   * loudness flutters (tremolo) at the wheel's spin rate. Faster riding = faster
+   * flutter + higher pitch, which is what makes it read as wheels, not wind.
+   */
+  makeWheel() {
+    const ctx = this.ctx
+    const src = ctx.createBufferSource()
+    src.buffer = this.noise
+    src.loop = true
+    const body = ctx.createBiquadFilter()
+    body.type = 'bandpass'
+    body.frequency.value = 320
+    body.Q.value = 0.7
+    const low = ctx.createBiquadFilter()
+    low.type = 'lowpass'
+    low.frequency.value = 900
+    low.Q.value = 0.5
+    // The flutter: a gentle tremolo (about +-15%), so it hums instead of buzzing.
+    const trem = ctx.createGain()
+    trem.gain.value = 0.82
+    const lfo = ctx.createOscillator()
+    lfo.type = 'sine'
+    lfo.frequency.value = 12
+    const depth = ctx.createGain()
+    depth.gain.value = 0.15
+    lfo.connect(depth).connect(trem.gain)
+    const out = ctx.createGain()
+    out.gain.value = 0
+    src.connect(body).connect(low).connect(trem).connect(out).connect(this.sfxGain)
+    src.start()
+    lfo.start()
+    return { body, lfo, out }
+  }
 
   makeLoop(freq, q, type) {
     const ctx = this.ctx
@@ -127,6 +168,16 @@ class AudioEngine {
         this.burst(t, 0.06, { freq: 2600, q: 0.8, vol: 0.35 })
         this.tone(190, t, 0.09, { vol: 0.25, to: 90 })
         break
+      case 'creak':
+        // Wooden plank giving way.
+        this.tone(140, t, 0.35, { type: 'sawtooth', vol: 0.06, to: 70 })
+        this.burst(t + 0.05, 0.25, { freq: 700, q: 3, vol: 0.12, to: 300 })
+        break
+      case 'brake':
+        // Kick into a powerslide: quick scuff + thump.
+        this.burst(t, 0.12, { freq: 1800, q: 1, vol: 0.3, to: 700 })
+        this.tone(110, t, 0.08, { vol: 0.12, to: 70 })
+        break
       case 'push':
         // Shoe scuffing the ground.
         this.burst(t, 0.16, { freq: 900, type: 'bandpass', q: 0.9, vol: 0.22, to: 400 })
@@ -186,13 +237,40 @@ class AudioEngine {
   }
 
   /** Continuous rolling / grinding noise, driven each frame by the local rider. */
-  setMotion(speed01, grounded, grinding) {
+  setMotion(speed01, grounded, grinding, braking = false) {
     if (!this.ctx || this.ctx.state !== 'running') return
     const t = this.ctx.currentTime
-    const rollVol = grounded && !grinding ? Math.min(0.32, speed01 * 0.36) : 0
-    this.roll.gain.gain.setTargetAtTime(rollVol, t, 0.06)
-    this.roll.filter.frequency.setTargetAtTime(250 + speed01 * 1300, t, 0.1)
+    const rolling = grounded && !grinding && !braking && speed01 > 0.03
+    // Wheel growl: spins faster (flutter 9 -> 55 Hz) and brighter with speed.
+    const wheel = this.wheel
+    // Slow time constants everywhere so speed changes glide instead of jumping.
+    wheel.out.gain.setTargetAtTime(rolling ? Math.min(1.5, 0.3 + speed01 * 1.3) : 0, t, rolling ? 0.22 : 0.12)
+    wheel.lfo.frequency.setTargetAtTime(6 + speed01 * 20, t, 0.3)
+    wheel.body.frequency.setTargetAtTime(260 + speed01 * 340, t, 0.3)
+    this.rumble.gain.gain.setTargetAtTime(rolling ? Math.min(0.7, 0.14 + speed01 * 0.5) : 0, t, 0.25)
+    this.rumble.filter.frequency.setTargetAtTime(90 + speed01 * 100, t, 0.3)
+    // "tak-tak": a click each time the wheels cross a seam in the ground. The
+    // faster you ride the faster they come, so speed is something you can hear.
+    if (rolling && this.sfxOn) {
+      const metersPerSecond = speed01 * 22
+      const interval = Math.min(0.8, Math.max(0.14, 2.2 / Math.max(1, metersPerSecond)))
+      if (t >= this.nextJoint) {
+        if (this.nextJoint > 0 && t - this.nextJoint < 0.3) {
+          const flip = (this.jointFlip = 1 - this.jointFlip)
+          // A soft, rounded "tok": low thump with only a little click on top.
+          const vol = 0.03 + speed01 * 0.05
+          this.burst(t, 0.05, { freq: flip ? 800 : 650, q: 0.9, vol: vol * 0.6, to: 350, type: 'lowpass' })
+          this.tone(flip ? 90 : 75, t, 0.09, { vol, to: 52, attack: 0.012 })
+        }
+        this.nextJoint = t + interval
+      }
+    } else {
+      this.nextJoint = 0
+    }
     this.grind.gain.gain.setTargetAtTime(grinding ? 0.22 : 0, t, 0.04)
+    // Powerslide: wheels scrubbing sideways across the ground.
+    this.scrub.gain.gain.setTargetAtTime(braking ? 0.1 + speed01 * 0.35 : 0, t, braking ? 0.03 : 0.08)
+    this.scrub.filter.frequency.setTargetAtTime(900 + speed01 * 1600, t, 0.05)
   }
 
   /* --------------------------------------------------------------- music */

@@ -14,7 +14,12 @@ import { CAP_CENTER } from './physics'
 const TURN_GROUND = 9
 const TURN_AIR = 4
 const ACCEL = 22
-const BRAKE = 34
+/** Deceleration while braking (m/s²): 20 m/s stops in about two thirds of a second. */
+const BRAKE = 30
+/** Input more than ~110° away from where you are rolling counts as "brake". */
+const BRAKE_DOT = -0.35
+/** After a full stop, keep holding the key this long before rolling the other way. */
+const REVERSE_DELAY = 0.6
 const COAST = 9
 const COYOTE = 0.1
 const JUMP_BUFFER = 0.14
@@ -40,6 +45,9 @@ export class RiderController {
     this.mover = null
     this.flips = 0
     this.pushing = false
+    /** True while the rider is braking (powerslide). */
+    this.braking = false
+    this.stopHold = 0
     this.events = []
   }
 
@@ -53,6 +61,8 @@ export class RiderController {
     this.mover = null
     this.airTime = 0
     this.grounded = false
+    this.braking = false
+    this.stopHold = 0
     this.syncCollider()
   }
 
@@ -76,21 +86,38 @@ export class RiderController {
       return this.events
     }
 
-    // ---- slopes: rolling downhill speeds you up, uphill slows you down ----
-    const slope = this.grounded ? this.groundNormal.x * this.heading.x + this.groundNormal.z * this.heading.z : 0
-    const downhill = slope > 0.05
+    // ---- slopes: the downhill direction is the ground normal's horizontal part ----
+    const gx = this.grounded ? this.groundNormal.x : 0
+    const gz = this.grounded ? this.groundNormal.z : 0
+    const steep = Math.hypot(gx, gz)
+    const onSlope = steep > 0.06 && this.groundNormal.y > 0.3
+    const slope = gx * this.heading.x + gz * this.heading.z
+    const downhill = onSlope && slope > 0.05
 
     // ---- horizontal: carve the heading toward the stick, then accelerate ----
+    // Pressing against the direction you are rolling (S going forward, W going
+    // backward) brakes with a powerslide instead of turning. Once stopped, keep
+    // holding it a moment to roll off the other way.
     const mag = Math.min(1, input.mag)
+    const wasBraking = this.braking
+    this.braking = false
     if (mag > 0.05) {
       _dir.set(input.x, 0, input.z).normalize()
       const dot = Math.max(-1, Math.min(1, this.heading.dot(_dir)))
       const angle = Math.acos(dot)
-      if (this.speed < 1.5 || angle < 0.001) {
+      const against = dot < BRAKE_DOT
+      if (against && this.grounded && this.speed > 0.6) {
+        this.braking = true
+        this.stopHold = REVERSE_DELAY
+        this.pushing = false
+        if (!wasBraking) this.events.push('brake')
+      } else if (against && this.grounded && this.stopHold > 0) {
+        // Just stopped: hold still briefly so a brake doesn't instantly reverse.
+        this.stopHold -= dt
+        this.speed = 0
+        this.pushing = false
+      } else if (this.speed < 1.5 || angle < 0.001) {
         if (this.speed < 1.5) this.heading.copy(_dir)
-      } else if (angle > 2.6 && this.grounded) {
-        // Pulling back hard: brake, then flip around once slow.
-        this.speed = Math.max(0, this.speed - BRAKE * dt)
       } else {
         const turn = Math.min(angle, (this.grounded ? TURN_GROUND : TURN_AIR) * dt)
         const cross = this.heading.x * _dir.z - this.heading.z * _dir.x
@@ -101,16 +128,34 @@ export class RiderController {
         const hz = -this.heading.x * sn + this.heading.z * c
         this.heading.set(hx, 0, hz).normalize()
       }
-      const target = maxSpeed * mag
-      if (this.speed < target) this.speed = Math.min(target, this.speed + (this.grounded ? ACCEL : ACCEL * 0.35) * dt)
-      else this.speed = Math.max(target, this.speed - (downhill ? 0 : COAST) * dt)
-      this.pushing = this.grounded && this.speed < target * 0.92
+      if (!this.braking && !(against && this.stopHold > 0 && this.grounded)) {
+        const target = maxSpeed * mag
+        if (this.speed < target) this.speed = Math.min(target, this.speed + (this.grounded ? ACCEL : ACCEL * 0.35) * dt)
+        else this.speed = Math.max(target, this.speed - (downhill ? 0 : COAST) * dt)
+        this.pushing = this.grounded && this.speed < target * 0.92
+      }
     } else {
-      this.speed = Math.max(0, this.speed - (this.grounded ? COAST : 1.5) * dt)
+      this.stopHold = 0
+      // Coasting: barely any friction while rolling down a slope.
+      this.speed = Math.max(0, this.speed - (this.grounded ? (onSlope ? COAST * 0.15 : COAST) : 1.5) * dt)
       this.pushing = false
     }
-    if (this.grounded && this.speed > 0.5) this.speed = Math.max(0, this.speed + GRAVITY * slope * 0.65 * dt)
-    this.speed = Math.min(this.speed, maxSpeed * 1.45)
+    if (onSlope) {
+      // Gravity along the slope: add it as a velocity, so a rider standing on a
+      // ramp rolls down it and a rider riding across a slope drifts downhill.
+      const g = GRAVITY * 0.7 * dt
+      const vx = this.heading.x * this.speed + gx * g
+      const vz = this.heading.z * this.speed + gz * g
+      const v = Math.hypot(vx, vz)
+      if (v > 1e-4) {
+        this.speed = v
+        // Only let the slope turn the board when the player isn't steering hard.
+        if ((mag < 0.05 || this.speed < 2) && !this.braking) this.heading.set(vx / v, 0, vz / v)
+      }
+    }
+    // Brakes win over slopes too, so you can stop on a ramp.
+    if (this.braking) this.speed = Math.max(0, this.speed - BRAKE * dt)
+    this.speed = Math.min(this.speed, maxSpeed * 1.5)
 
     // ---- vertical ----
     if (this.grounded) this.coyote = COYOTE
@@ -173,6 +218,7 @@ export class RiderController {
     const hit = this.phys.groundProbe(this.pos, 0.6)
     const probeDist = hit ? hit.timeOfImpact - CAP_CENTER : Infinity
     if (!groundedNow && this.vy <= 0 && probeDist < 0.08) groundedNow = true
+    this.groundHandle = hit && probeDist < 0.35 ? hit.collider.handle : -1
     if (hit && probeDist < 0.35) {
       this.groundNormal.set(hit.normal.x, hit.normal.y, hit.normal.z)
       this.mover = this.phys.moverByHandle.get(hit.collider.handle) || null

@@ -37,9 +37,8 @@ Without `MONGODB_URI` the server saves progress to `.data/dev-db.json`.
   `(1 + board bonus) × treadmill × rebirth × trail × charms × boosts × squad`.
 - **Level** (0–25) comes from your speed. Each level raises your top riding speed,
   which is what lets you jump the wider **speed gaps** in later stages.
-- **20 stages** (10 per world). Each ends with a speed gap, then two win pads
-  (*Return* teleports you to the lobby, *Continue* lets you keep going through the
-  gate) and two free treadmills.
+- **25 stages** (15 in Sunny Skatepark, 10 in Neon City). Each ends with a speed gap, then two win pads
+  (both award Wins and return you to the lobby) and two free treadmills.
 - **Wins** buy everything: skateboards, treadmills, trails, charms, speed packs and
   boosts. No real-money purchases.
 - **Rebirth** at level 25: speed resets, but every future speed and win gain is

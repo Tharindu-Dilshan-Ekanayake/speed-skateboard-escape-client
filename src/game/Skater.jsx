@@ -8,6 +8,8 @@ import { audio } from './audio'
 import BlockyAvatar from './BlockyAvatar'
 import PlayerAvatar from './PlayerAvatar'
 import Skateboard from './Skateboard'
+import SlideFx from './SlideFx'
+import TrackFx from './TrackFx'
 import Underglow from './Underglow'
 import { FONT_URL } from './World'
 
@@ -41,7 +43,8 @@ const STANCE_PUSH = -0.45
  *   { time, speed, maxSpeed, grounded, grinding, pushing, treadmill, lean,
  *     flips, normal: Vector3 }
  */
-export function Skater({ motionRef, board, trail, glow = 0, name, rebirths = 0, equipped, proportions, isLocal = false }) {
+export function Skater({ motionRef, board, trail, glow = 0, level = 0, name, equipped, proportions, isLocal = false }) {
+  const rootRef = useRef(null)
   const boardRef = useRef(null)
   const bodyRef = useRef(null)
   const trailTarget = useRef(null)
@@ -49,6 +52,8 @@ export function Skater({ motionRef, board, trail, glow = 0, name, rebirths = 0, 
   const trick = useRef({ last: -1, t: 1, kind: 0 })
   const tilt = useRef(new Quaternion())
   const push = useRef({ t: -1, last: 0 })
+  /** 0..1, eased: how far into a powerslide the board is. */
+  const slide = useRef(0)
 
   const trailDef = trailById(trail)
 
@@ -70,6 +75,10 @@ export function Skater({ motionRef, board, trail, glow = 0, name, rebirths = 0, 
     _q.setFromUnitVectors(UP, _n)
     tilt.current.slerp(_q, 1 - Math.pow(0.001, dt))
     b.quaternion.copy(tilt.current)
+    // Powerslide: swing the board ~70° sideways while braking.
+    const sl = slide.current + ((m.braking ? 1 : 0) - slide.current) * Math.min(1, dt * (m.braking ? 14 : 7))
+    slide.current = sl
+    if (sl > 0.001) b.rotateY(sl * 1.2)
 
     let lift = 0
     if (tr.t < TRICK_TIME) {
@@ -107,8 +116,12 @@ export function Skater({ motionRef, board, trail, glow = 0, name, rebirths = 0, 
     if (bodyRef.current) {
       const body = bodyRef.current
       body.position.y = 0.26 + lift * 0.6 + (m.grinding ? 0.02 : 0)
-      const target = m.pushU >= 0 ? STANCE_PUSH : STANCE_RIDE[m.style ?? 0] ?? STANCE_RIDE[0]
-      body.rotation.y += (target - body.rotation.y) * Math.min(1, dt * 9)
+      const stance = m.pushU >= 0 ? STANCE_PUSH : STANCE_RIDE[m.style ?? 0] ?? STANCE_RIDE[0]
+      // The body turns with the board in a powerslide, crouches and leans back.
+      const target = stance + slide.current * 1.2
+      body.rotation.y += (target - body.rotation.y) * Math.min(1, dt * 12)
+      body.position.y -= slide.current * 0.12
+      body.rotation.x = -slide.current * 0.28
       // Lean into turns: with a sideways stance that is a roll along the board.
       body.rotation.z = -(m.lean || 0) * 0.12
     }
@@ -117,11 +130,11 @@ export function Skater({ motionRef, board, trail, glow = 0, name, rebirths = 0, 
     }
   })
 
-  const tagWidth = (name || '').length * 0.16
   const fallback = <BlockyAvatar motionRef={motionRef} />
 
   return (
-    <group>
+    <group ref={rootRef}>
+      <TrackFx rootRef={rootRef} motionRef={motionRef} board={board} trail={trail} glow={glow} level={level} />
       <group ref={boardRef}>
         <group scale={1.4}>
           <Skateboard board={board} />
@@ -130,7 +143,8 @@ export function Skater({ motionRef, board, trail, glow = 0, name, rebirths = 0, 
           <boxGeometry args={[0.01, 0.01, 0.01]} />
         </mesh>
       </group>
-      <Underglow board={board} glow={glow} motionRef={motionRef} liftRef={boardRef} />
+      <Underglow board={board} glow={glow} motionRef={motionRef} liftRef={boardRef} level={level} />
+      <SlideFx motionRef={motionRef} anchorRef={boardRef} />
       {trailDef ? (
         <Trail
           target={trailTarget}
@@ -152,29 +166,14 @@ export function Skater({ motionRef, board, trail, glow = 0, name, rebirths = 0, 
         </AvatarBoundary>
       </group>
       {name ? (
-        <Billboard position={[0, 2.55, 0]}>
-          <mesh position={[-tagWidth / 2 - 0.12, 0, 0]}>
-            <circleGeometry args={[0.17, 20]} />
-            <meshBasicMaterial color="#ff5a1f" />
-          </mesh>
+        <Billboard position={[0, 2.45, 0]}>
           <Text
             font={FONT_URL}
-            position={[-tagWidth / 2 - 0.12, 0, 0.01]}
-            fontSize={0.2}
-            color="#ffffff"
-            anchorX="center"
-            anchorY="middle"
-          >
-            {String(rebirths)}
-          </Text>
-          <Text
-            font={FONT_URL}
-            position={[-tagWidth / 2 + 0.12, 0, 0]}
-            fontSize={0.3}
+            fontSize={0.22}
             color="#ffffff"
             outlineColor="#1b1530"
-            outlineWidth={0.035}
-            anchorX="left"
+            outlineWidth={0.03}
+            anchorX="center"
             anchorY="middle"
           >
             {name}

@@ -1,4 +1,6 @@
-import { BufferAttribute, BufferGeometry } from 'three'
+import { BufferAttribute, BufferGeometry, Color } from 'three'
+
+import { sampleRibbon } from '../shared/layout'
 
 /**
  * Custom geometry shared by the renderer and the physics builder, so what you
@@ -124,4 +126,80 @@ export function pipeWorldTriangles(pipe) {
     out[i + 2] = pipe.p[2] - x * sin + z * cos
   }
   return out
+}
+
+/* ------------------------------------------------------------------ ribbons */
+
+/**
+ * Triangles for a ribbon road (see `Builder.ribbon` in shared/layout.js): the
+ * cross-section is swept along the smoothed path, so curves and slopes are one
+ * seamless surface. Returns world-space positions plus one colour per vertex.
+ */
+export function ribbonTriangles(r) {
+  const samples = sampleRibbon(r.pts)
+  const hw = r.w / 2
+  const t = r.thick
+  const cw = 0.45
+  const ch = 0.5
+  // Clockwise cross-section (x right, y up); `c` picks the colour for the face
+  // that starts at this point.
+  const prof = r.curb
+    ? [
+        [-hw, ch, 'e'], [-hw + cw, ch, 'e'], [-hw + cw, 0, 't'], [hw - cw, 0, 'e'],
+        [hw - cw, ch, 'e'], [hw, ch, 's'], [hw, -t, 's'], [-hw, -t, 's'],
+      ]
+    : [[-hw, 0, 't'], [hw, 0, 's'], [hw, -t, 's'], [-hw, -t, 's']]
+  const rects = r.curb
+    ? [[-hw, -t, -hw + cw, ch], [-hw + cw, -t, hw - cw, 0], [hw - cw, -t, hw, ch]]
+    : [[-hw, -t, hw, 0]]
+
+  const top = new Color(r.color)
+  const edge = new Color(r.edge)
+  const side = new Color(r.edge).multiplyScalar(0.78)
+  const pick = (k) => (k === 't' ? top : k === 'e' ? edge : side)
+
+  const pos = []
+  const col = []
+  const at = (s, x, y) => [s.x + -s.tz * x, s.y + y, s.z + s.tx * x]
+  const tri = (a, b, c, color) => {
+    pos.push(...a, ...b, ...c)
+    for (let i = 0; i < 3; i += 1) col.push(color.r, color.g, color.b)
+  }
+
+  for (let i = 0; i < samples.length - 1; i += 1) {
+    const s0 = samples[i]
+    const s1 = samples[i + 1]
+    for (let j = 0; j < prof.length; j += 1) {
+      const A = prof[j]
+      const B = prof[(j + 1) % prof.length]
+      const c = pick(A[2])
+      const a0 = at(s0, A[0], A[1])
+      const b0 = at(s0, B[0], B[1])
+      const b1 = at(s1, B[0], B[1])
+      const a1 = at(s1, A[0], A[1])
+      tri(a0, b0, b1, c)
+      tri(a0, b1, a1, c)
+    }
+  }
+  // End caps (start faces backwards along the path, end faces forwards).
+  const first = samples[0]
+  const last = samples[samples.length - 1]
+  for (const [xa, ya, xb, yb] of rects) {
+    tri(at(first, xa, ya), at(first, xb, ya), at(first, xb, yb), side)
+    tri(at(first, xa, ya), at(first, xb, yb), at(first, xa, yb), side)
+    tri(at(last, xa, ya), at(last, xb, yb), at(last, xb, ya), side)
+    tri(at(last, xa, ya), at(last, xa, yb), at(last, xb, yb), side)
+  }
+  return { positions: new Float32Array(pos), colors: new Float32Array(col) }
+}
+
+export function ribbonGeometry(r) {
+  const { positions, colors } = ribbonTriangles(r)
+  const geo = new BufferGeometry()
+  geo.setAttribute('position', new BufferAttribute(positions, 3))
+  geo.setAttribute('color', new BufferAttribute(colors, 3))
+  geo.setAttribute('uv', new BufferAttribute(new Float32Array((positions.length / 3) * 2), 2))
+  geo.computeVertexNormals()
+  geo.computeBoundingSphere()
+  return geo
 }

@@ -1296,3 +1296,295 @@ html {
 .has-dev .streakbtn {
   bottom: 4.4rem;
 }
+
+/* =====================================================================
+   Compact "blocky" theme (overrides the sizes above).
+   Smaller rounded-square buttons with a white inner rim, a dark outline and
+   a small dark key badge, like Bloxity simulator games.
+   ===================================================================== */
+
+.stats {
+  top: 7.6rem;
+  gap: 0;
+}
+.stat-row {
+  font-size: 2.5rem;
+}
+.stat-row svg {
+  width: 3.4rem;
+  height: 3.4rem;
+}
+
+.menu {
+  top: 15.6rem;
+  transform: none;
+  grid-template-columns: repeat(2, 6rem);
+  gap: 0.8rem 0.7rem;
+}
+.mbtn {
+  width: 6rem;
+  height: 6rem;
+  border: 0.22rem solid var(--ink);
+  border-radius: 0.9rem;
+  background: var(--tint, #3fa2ff);
+  box-shadow:
+    inset 0 0 0 0.22rem rgba(255, 255, 255, 0.85),
+    inset 0 -0.6rem 0 rgba(0, 0, 0, 0.18),
+    0 0.25rem 0 var(--ink);
+}
+.mbtn:hover {
+  transform: translateY(-0.15rem);
+}
+.mbtn svg {
+  top: 42%;
+  width: 3.6rem;
+  height: 3.6rem;
+}
+.mbtn .label {
+  bottom: 0.25rem;
+  font-size: 1.2rem;
+}
+.mbtn .tag {
+  top: -0.9rem;
+  right: -0.6rem;
+  font-size: 1.2rem;
+}
+.mbtn .key {
+  top: -0.55rem;
+  left: -0.55rem;
+  min-width: 1.8rem;
+  height: 1.8rem;
+  font-size: 1.05rem;
+  background: #1b1530;
+  color: #ffffff;
+  border: 0.15rem solid #ffffff;
+  border-radius: 0.4rem;
+  box-shadow: 0 0.15rem 0 rgba(0, 0, 0, 0.4);
+}
+
+.quest {
+  min-width: 26rem;
+  font-size: 2.3rem;
+  padding: 0.5rem 2.4rem 0.6rem;
+}
+.quest .sub {
+  font-size: 1.25rem;
+}
+.where {
+  top: 6.2rem;
+  font-size: 1.4rem;
+}
+
+.profile-wrap {
+  top: 0.9rem;
+  right: 0.9rem;
+}
+.profile {
+  gap: 0.5rem;
+  padding: 0.25rem 1rem 0.25rem 0.25rem;
+  border-width: 0.2rem;
+  max-width: 20rem;
+}
+.profile img,
+.profile .pfp-fallback {
+  width: 3rem;
+  height: 3rem;
+  border-width: 0.16rem;
+  font-size: 1.6rem;
+}
+.pname {
+  font-size: 1.45rem;
+  max-width: 14rem;
+}
+
+.rightcol {
+  width: 15rem;
+  gap: 1.9rem;
+  right: 1rem;
+}
+.custom .title {
+  font-size: 1.45rem;
+}
+.custom-box {
+  height: 3.8rem;
+  font-size: 2.4rem;
+  border-width: 0.22rem;
+}
+.custom-box svg {
+  width: 3.2rem;
+  height: 3.2rem;
+  left: -1.1rem;
+}
+.custom .max {
+  font-size: 1.2rem;
+  bottom: -1.3rem;
+}
+.boost {
+  font-size: 1.85rem;
+  padding: 0.45rem 0.3rem 0.8rem;
+  border-width: 0.22rem;
+}
+.boost .price {
+  font-size: 1.4rem;
+  top: -1.2rem;
+}
+.boost .price svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+.boost .timer {
+  font-size: 1.1rem;
+}
+
+.bottom {
+  width: min(46rem, 52vw);
+  bottom: 0.7rem;
+}
+.speedtxt {
+  font-size: 2.3rem;
+  margin-bottom: 0.25rem;
+}
+.lvlbar {
+  height: 3rem;
+  border-width: 0.22rem;
+  border-radius: 1rem;
+}
+.lvlbar .txt {
+  font-size: 1.75rem;
+  padding: 0 1rem;
+}
+.packs {
+  margin-top: 0.8rem;
+  margin-bottom: 0.7rem;
+  gap: 1rem;
+}
+.pack {
+  height: 3.8rem;
+  max-width: 10.5rem;
+  font-size: 1.8rem;
+  border-width: 0.22rem;
+}
+.pack .price {
+  font-size: 1.25rem;
+  top: -1.1rem;
+}
+.pack .price svg {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+.pack::before,
+.pack::after,
+.boost::before,
+.boost::after {
+  width: 1.1rem;
+  height: 1.1rem;
+  bottom: -0.8rem;
+  border-width: 0.16rem;
+}
+.squad {
+  font-size: 1.4rem;
+}
+.streakbtn {
+  width: 4.6rem;
+  height: 4.6rem;
+  border-width: 0.22rem;
+}
+.streakbtn svg {
+  width: 3rem;
+  height: 3rem;
+}
+.has-dev .bottom {
+  bottom: 3.6rem;
+}
+
+/* ---------------------------------------------------------------------
+   Action pill (bottom centre, above the speed bar). Replaces the old big
+   white prompt box so nothing covers the game.
+   --------------------------------------------------------------------- */
+.prompt-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 13.6rem;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 1rem 0.3rem 0.35rem;
+  border-radius: 2rem;
+  border: 0.2rem solid var(--ink);
+  box-shadow:
+    inset 0 -0.35rem 0 rgba(0, 0, 0, 0.18),
+    inset 0 0.2rem 0 rgba(255, 255, 255, 0.35),
+    0 0.22rem 0 var(--ink);
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  animation: pill-in 0.18s ease-out;
+}
+.prompt-pill:hover {
+  filter: brightness(1.08);
+}
+.prompt-pill:active {
+  transform: translateX(-50%) translateY(0.1rem);
+}
+.prompt-pill.tone-green {
+  background: linear-gradient(180deg, #7dff7a, #22c44a);
+}
+.prompt-pill.tone-gold {
+  background: linear-gradient(180deg, #ffe46b, #ff9f1f);
+}
+.prompt-pill.tone-blue {
+  background: linear-gradient(180deg, #6fd3ff, #1f7bff);
+}
+.prompt-pill.short {
+  background: linear-gradient(180deg, #b9b5cc, #7d7896);
+}
+.prompt-pill .kbd {
+  display: grid;
+  place-items: center;
+  width: 2.3rem;
+  height: 2.3rem;
+  border-radius: 50%;
+  background: #1b1530;
+  color: #fff;
+  font-size: 1.3rem;
+  border: 0.15rem solid #fff;
+}
+.prompt-pill .plabel {
+  font-size: 1.5rem;
+}
+.prompt-pill .pcost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 1.35rem;
+  color: #fff6c2;
+}
+.prompt-pill .pcost svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+@keyframes pill-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(0.6rem) scale(0.9);
+  }
+}
+
+/* Toasts sit just above the action pill instead of over the top of the screen. */
+.toasts {
+  top: auto;
+  bottom: 17rem;
+  flex-direction: column-reverse;
+  gap: 0.35rem;
+}
+.toast {
+  font-size: 1.35rem;
+  padding: 0.3rem 0.9rem;
+  border-radius: 1rem;
+  background: rgba(20, 16, 40, 0.7);
+}
+.reconnect {
+  bottom: 17rem;
+  font-size: 1.35rem;
+}

@@ -1,8 +1,9 @@
 import { useFrame } from '@react-three/fiber'
 import { useMemo, useRef } from 'react'
-import { CanvasTexture, MeshStandardMaterial, RepeatWrapping, SRGBColorSpace } from 'three'
+import { BoxGeometry, CanvasTexture, CylinderGeometry, MeshBasicMaterial, MeshStandardMaterial, RepeatWrapping, SRGBColorSpace } from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
-import { grannyPos, sweeperAngle } from '../shared/layout'
+import { carPos, grannyPos, sweeperAngle } from '../shared/layout'
 import { serverSeconds } from '../state/store'
 import Near from './Near'
 
@@ -149,6 +150,72 @@ function Granny({ o }) {
   )
 }
 
+/* ------------------------------------------------------------------ traffic */
+
+let carGeo = null
+function carGeometries() {
+  if (carGeo) return carGeo
+  const part = (w, h, d, x, y, z) => {
+    const g = new BoxGeometry(w, h, d)
+    g.translate(x, y, z)
+    return g
+  }
+  const body = [part(2.4, 0.9, 4.6, 0, 0.75, 0), part(2.0, 0.75, 2.4, 0, 1.55, -0.2)]
+  const glass = [part(2.06, 0.5, 2.0, 0, 1.55, -0.2), part(1.9, 0.48, 0.06, 0, 1.55, 1.01)]
+  const dark = []
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1.5, 1.5]) {
+      const w = new CylinderGeometry(0.4, 0.4, 0.32, 12)
+      w.rotateZ(Math.PI / 2)
+      w.translate(sx * 1.12, 0.4, sz)
+      dark.push(w)
+    }
+  }
+  dark.push(part(2.5, 0.25, 0.25, 0, 0.45, 2.33), part(2.5, 0.25, 0.25, 0, 0.45, -2.33))
+  const head = [part(0.5, 0.25, 0.06, -0.75, 0.85, 2.31), part(0.5, 0.25, 0.06, 0.75, 0.85, 2.31)]
+  const tail = [part(0.5, 0.22, 0.06, -0.8, 0.85, -2.31), part(0.5, 0.22, 0.06, 0.8, 0.85, -2.31)]
+  carGeo = {
+    body: mergeGeometries(body),
+    glass: mergeGeometries(glass),
+    dark: mergeGeometries(dark),
+    head: mergeGeometries(head),
+    tail: mergeGeometries(tail),
+  }
+  return carGeo
+}
+const carMats = {
+  glass: new MeshStandardMaterial({ color: '#2a3550', roughness: 0.2, metalness: 0.3 }),
+  dark: new MeshStandardMaterial({ color: '#1d1d24', roughness: 0.8 }),
+  head: new MeshBasicMaterial({ color: '#fff4b8' }),
+  tail: new MeshBasicMaterial({ color: '#ff3b3b' }),
+}
+const bodyMats = new Map()
+const bodyMat = (c) => {
+  if (!bodyMats.has(c)) bodyMats.set(c, new MeshStandardMaterial({ color: c, roughness: 0.35, metalness: 0.1 }))
+  return bodyMats.get(c)
+}
+
+function TrafficCar({ o }) {
+  const ref = useRef(null)
+  const g = carGeometries()
+  useFrame(() => {
+    const car = carPos(o, serverSeconds())
+    const m = ref.current
+    if (!m) return
+    m.position.set(o.x, Math.sin(car.z * 2) * 0.02, car.z)
+    m.scale.setScalar(Math.max(0.001, car.grow))
+  })
+  return (
+    <group ref={ref} rotation={[0, o.dir > 0 ? 0 : Math.PI, 0]}>
+      <mesh geometry={g.body} material={bodyMat(o.color)} castShadow />
+      <mesh geometry={g.glass} material={carMats.glass} />
+      <mesh geometry={g.dark} material={carMats.dark} />
+      <mesh geometry={g.head} material={carMats.head} />
+      <mesh geometry={g.tail} material={carMats.tail} />
+    </group>
+  )
+}
+
 function Sweeper({ o }) {
   const bar = useRef(null)
   useFrame(() => {
@@ -198,8 +265,8 @@ export function Obstacles({ layout, physics }) {
   return (
     <>
       {layout.obstacles.map((o) => (
-        <Near key={o.id} at={o.kind === 'granny' ? [(o.x0 + o.x1) / 2, 0, o.z] : o.p} radius={260}>
-          {o.kind === 'granny' ? <Granny o={o} /> : <Sweeper o={o} />}
+        <Near key={o.id} at={o.kind === 'granny' ? [(o.x0 + o.x1) / 2, 0, o.z] : o.kind === 'car' ? [o.x, 0, (o.z0 + o.z1) / 2] : o.p} radius={200}>
+          {o.kind === 'granny' ? <Granny o={o} /> : o.kind === 'car' ? <TrafficCar o={o} /> : <Sweeper o={o} />}
         </Near>
       ))}
       <Movers physics={physics} />
