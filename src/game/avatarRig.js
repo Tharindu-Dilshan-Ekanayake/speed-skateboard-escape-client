@@ -428,21 +428,47 @@ const clamp1 = (v) => Math.max(-1, Math.min(1, v))
  * smooth rhythm while rolling that fades out when standing.
  */
 function streetArms(rig, m, pump) {
-  const out = window.__ARMS ?? m.arms ?? 1 // TEMP-DEBUG
+  const out = m.arms ?? 1
   const t = m.time || 0
   const kicking = (m.pushU ?? -1) >= 0
-  // No swing in the air: the arms just hold out to the sides.
-  const ride = kicking || !m.grounded ? 0 : Math.max(0, Math.min(1, (out - 0.12) / 0.2))
+  // No swing in the air, on a rail or in a slide: the arms hold out to the sides.
+  const still = kicking || !m.grounded || m.grinding || m.braking
+  const ride = still ? 0 : Math.max(0, Math.min(1, (out - 0.12) / 0.2))
+  // On a rail: balance like a see-saw, one arm dipping while the other rises.
+  const seesaw = m.grinding ? Math.sin(t * 2.2) * 0.22 + Math.sin(t * 5.3 + 0.8) * 0.05 : 0
   // Forward/back swing only: + means the LEFT arm goes forward, the right one back.
   const sweep = kicking ? pump : (Math.sin(t * 2.4) * 0.42 + Math.sin(t * 4.8 + 0.6) * 0.05) * ride
-  // The sideways spread is fixed, so the arms never move left/right.
-  sway(rig, 'ArmL1', -(0.06 + out))
-  sway(rig, 'ArmR1', 0.06 + out)
-  swing(rig, 'ArmL1', -sweep - 0.1 * out)
-  swing(rig, 'ArmR1', sweep - 0.1 * out)
+  // The sideways spread is fixed, so the arms never move left/right. These
+  // rotate about the body's real axes (see bodyRotate): the arm bones' rest
+  // axes are skewed, so the per-bone sway/swing would raise them diagonally.
+  bodyRotate(rig, 'ArmL1', _side, -(0.06 + out + seesaw) * rig.rightSign)
+  bodyRotate(rig, 'ArmR1', _side, (0.06 + out - seesaw) * rig.rightSign)
+  bodyRotate(rig, 'ArmL1', _fore, -sweep - 0.1 * out)
+  bodyRotate(rig, 'ArmR1', _fore, sweep - 0.1 * out)
   // Elbows soften, bending more on the arm that swings forward.
   swing(rig, 'ArmL2', -0.12 - 0.08 * Math.min(out, 0.4) - Math.max(0, sweep) * 0.6)
   swing(rig, 'ArmR2', -0.12 - 0.08 * Math.min(out, 0.4) - Math.max(0, -sweep) * 0.6)
+}
+
+/** Character-space axes: `_fore` swings a limb forward/back, `_side` raises it sideways. */
+const _fore = new Vector3(1, 0, 0)
+const _side = new Vector3(0, 0, 1)
+const _pq = new Quaternion()
+const _rq = new Quaternion()
+const _ax = new Vector3()
+
+/**
+ * Rotates a bone about a character-space axis through its own pivot, using the
+ * bone's CURRENT parent orientation (so it is exact whatever the rest axes are).
+ */
+function bodyRotate(rig, name, axis, angle) {
+  const bone = rig.bones[name]?.bone
+  if (!bone?.parent || !angle) return
+  bone.parent.updateWorldMatrix(true, false)
+  bone.parent.getWorldQuaternion(_pq).invert()
+  rig.root.getWorldQuaternion(_rq)
+  _ax.copy(axis).applyQuaternion(_rq).applyQuaternion(_pq)
+  bone.quaternion.premultiply(_animQ.setFromAxisAngle(_ax, angle))
 }
 
 /**
@@ -503,8 +529,8 @@ export function poseSkater(rig, m, unitScale = 1) {
     swing(rig, 'LegR1', -0.8)
     swing(rig, 'LegR2', 1.45)
     swing(rig, 'Spine1', -0.3)
-    sway(rig, 'ArmL1', -1.3 + Math.sin(t * 8) * 0.08)
-    sway(rig, 'ArmR1', 1.3 - Math.sin(t * 8) * 0.08)
+    // Balancing on the rail: arms wide out to both sides, see-sawing.
+    streetArms(rig, m, 0)
     rig.root.position.y = rig.rootRestY - 0.6
     return
   }
@@ -550,9 +576,7 @@ export function poseSkater(rig, m, unitScale = 1) {
     swing(rig, 'LegR1', -0.75)
     swing(rig, 'LegR2', 1.35)
     swing(rig, 'Spine1', -0.1)
-    sway(rig, 'ArmL1', -1.35)
-    sway(rig, 'ArmR1', 1.15)
-    swing(rig, 'ArmR1', -0.4)
+    streetArms(rig, m, 0)
     rig.root.position.y = rig.rootRestY - 0.7
     return
   }

@@ -46,6 +46,19 @@ const ARMS_KICK = 0.32 // same as riding: the arms only move forward/back
 const ARMS_STAND = 0.12
 /** In the air: straight out to both sides. */
 const ARMS_AIR = 1.45
+/** Balancing on a rail, and in a powerslide. */
+const ARMS_GRIND = 1.2
+const ARMS_BRAKE = 1.0
+
+/** How far the arms should spread for what the rider is doing right now. */
+function armSpread(m, airborne) {
+  if (m.grinding) return ARMS_GRIND
+  if (airborne) return ARMS_AIR
+  if (m.braking) return ARMS_BRAKE
+  if (m.pushU >= 0) return ARMS_KICK
+  if (m.idle > 0.5) return ARMS_STAND
+  return m.speed > 0.5 ? ARMS_RIDE : ARMS_STAND
+}
 
 /**
  * One skater: board (with tricks), avatar, name tag and trail. The parent moves
@@ -81,7 +94,6 @@ export function Skater({ motionRef, board, trail, glow = 0, level = 0, name, equ
     }
 
     const b = boardRef.current
-    if (window.__AIR) m.grounded = false // TEMP-DEBUG
     // Tilt the board to the ground under it.
     _n.copy(m.normal || UP)
     _q.setFromUnitVectors(UP, _n)
@@ -145,17 +157,9 @@ export function Skater({ motionRef, board, trail, glow = 0, level = 0, name, equ
     // Arms: held low and a little out while rolling, closer in while kicking,
     // relaxed by the sides when standing. Eased so they never snap.
     const airborne = !m.grounded && !m.grinding
-    const armTarget = airborne
-      ? ARMS_AIR
-      : m.pushU >= 0
-        ? ARMS_KICK
-        : m.idle > 0.5
-          ? ARMS_STAND
-          : m.speed > 0.5
-            ? ARMS_RIDE
-            : ARMS_STAND
+    const armTarget = armSpread(m, airborne)
     // Snappy on take-off and landing, gentle otherwise.
-    const armRate = airborne ? 20 : m.arms > ARMS_RIDE + 0.05 ? 10 : 5
+    const armRate = airborne || m.grinding ? 20 : m.arms > ARMS_RIDE + 0.05 ? 10 : 5
     m.arms = m.arms == null ? armTarget : m.arms + (armTarget - m.arms) * Math.min(1, dt * armRate)
 
     if (bodyRef.current) {
