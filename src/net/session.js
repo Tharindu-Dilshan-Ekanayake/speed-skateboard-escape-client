@@ -196,7 +196,7 @@ class Session {
           token,
           look: lookPayload(),
           resume,
-          style: useGame.getState().settings.style ?? 0,
+          style: 0,
         })
         this.attach(room)
         break

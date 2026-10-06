@@ -681,29 +681,6 @@ function SettingsPanel() {
       </div>
       <div className="set-row">
         <span>
-          Riding Style
-          <div className="hint">How your skater stands on the board (everyone sees it)</div>
-        </span>
-        <span style={{ display: 'flex', gap: '0.6rem' }}>
-          {['Surfer', 'Classic', 'Chill'].map((label, i) => (
-            <button
-              key={label}
-              type="button"
-              className={`gbtn stroke-thin ${(settings.style ?? 0) === i ? 'c-green' : 'c-gray'}`}
-              style={{ minWidth: '7.5rem' }}
-              onClick={() => {
-                click()
-                update({ style: i })
-                net.send('style', { style: i })
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </span>
-      </div>
-      <div className="set-row">
-        <span>
           Graphics
           <div className="hint">Low turns off shadows for slower devices</div>
         </span>

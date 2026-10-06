@@ -118,7 +118,7 @@ export function PlayerAvatar({ equipped, proportions, motionRef, targetHeight = 
   useFrame(() => {
     try {
       applyProportions(rig, proportionsRef.current || {})
-      poseSkater(rig, motionRef?.current)
+      poseSkater(rig, motionRef?.current, fit.scale)
     } catch {
       // A malformed payload must not kill the render loop.
     }

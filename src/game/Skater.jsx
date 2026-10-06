@@ -31,10 +31,34 @@ const _q = new Quaternion()
 const _rainbow = new Color()
 
 const TRICK_TIME = 0.5
-const PUSH_TIME = 0.78
+/** One kick on the ground. Kicks come in pairs, then the rider rolls. */
+const PUSH_TIME = 0.55
+const KICKS_PER_SET = 2
+/** Rolling time between kick pairs: shorter while speeding up or on a treadmill. */
+const COAST_CRUISE = 1.7
+const COAST_ACCEL = 0.45
 /** Body yaw on the board: sideways when cruising, nearly forward while pushing. */
-const STANCE_RIDE = [-1.45, -1.35, -1.2]
-const STANCE_PUSH = -0.45
+const STANCE_RIDE = [-0.3, -1.35, -1.2]
+const STANCE_PUSH = -0.1
+/** How far the arms spread out to the sides (radians from the body). */
+const ARMS_RIDE = 0.32
+const ARMS_KICK = 0.32 // same as riding: the arms only move forward/back
+const ARMS_STAND = 0.12
+/** In the air: straight out to both sides. */
+const ARMS_AIR = 1.45
+/** Balancing on a rail, and in a powerslide. */
+const ARMS_GRIND = 1.2
+const ARMS_BRAKE = 1.0
+
+/** How far the arms should spread for what the rider is doing right now. */
+function armSpread(m, airborne) {
+  if (m.grinding) return ARMS_GRIND
+  if (airborne) return ARMS_AIR
+  if (m.braking) return ARMS_BRAKE
+  if (m.pushU >= 0) return ARMS_KICK
+  if (m.idle > 0.5) return ARMS_STAND
+  return m.speed > 0.5 ? ARMS_RIDE : ARMS_STAND
+}
 
 /**
  * One skater: board (with tricks), avatar, name tag and trail. The parent moves
@@ -51,7 +75,7 @@ export function Skater({ motionRef, board, trail, glow = 0, level = 0, name, equ
   const trailMat = useRef(null)
   const trick = useRef({ last: -1, t: 1, kind: 0 })
   const tilt = useRef(new Quaternion())
-  const push = useRef({ t: -1, last: 0 })
+  const push = useRef({ t: -1, last: -10, kicks: 0 })
   /** 0..1, eased: how far into a powerslide the board is. */
   const slide = useRef(0)
 
@@ -94,29 +118,54 @@ export function Skater({ motionRef, board, trail, glow = 0, level = 0, name, equ
     if (!m.grounded && !m.grinding) lift += 0.12
     b.position.y = lift
 
-    // Kick-push cycles: while accelerating / on a treadmill, and every few
-    // seconds while cruising so riders never just stand on the board.
+    // Kick-push rhythm: two kicks on the ground, roll a while, two kicks again.
     const p = push.current
-    const rolling = m.grounded && !m.grinding
+    const rolling = m.grounded && !m.grinding && !m.braking
+    const wantsPush = rolling && (m.pushing || m.treadmill || m.speed > 1.5)
     if (p.t < 0) {
-      const cruisePush = rolling && m.speed > 1.5 && m.time - p.last > 2.6
-      if (rolling && (m.pushing || m.treadmill || cruisePush)) p.t = 0
+      const gap = m.pushing || m.treadmill ? COAST_ACCEL : COAST_CRUISE
+      if (wantsPush && m.time - p.last > gap) {
+        // Standing with a foot already on the ground: start mid-kick, pushing.
+        p.t = (m.idle || 0) > 0.5 ? PUSH_TIME * 0.2 : 0
+        p.kicks = KICKS_PER_SET
+      }
     } else {
       const before = p.t / PUSH_TIME
       p.t += dt
       const after = p.t / PUSH_TIME
-      if (isLocal && before < 0.15 && after >= 0.15) audio.play('push')
-      if (p.t >= PUSH_TIME || !rolling) {
+      if (isLocal && before < 0.22 && after >= 0.22) audio.play('push')
+      if (!rolling) {
         p.t = -1
         p.last = m.time
+      } else if (p.t >= PUSH_TIME) {
+        p.kicks -= 1
+        if (p.kicks > 0) {
+          p.t = 0
+        } else {
+          p.t = -1
+          p.last = m.time
+        }
       }
     }
     m.pushU = p.t >= 0 ? p.t / PUSH_TIME : -1
 
+    // Standing still (Street style): step one foot off onto the ground.
+    const standing = (m.style ?? 0) === 0 && rolling && p.t < 0 && !m.pushing && !m.treadmill && m.speed < 0.5
+    const idle = m.idle || 0
+    m.idle = standing ? Math.min(1, idle + dt * 2.5) : Math.max(0, idle - dt * 8)
+
+    // Arms: held low and a little out while rolling, closer in while kicking,
+    // relaxed by the sides when standing. Eased so they never snap.
+    const airborne = !m.grounded && !m.grinding
+    const armTarget = armSpread(m, airborne)
+    // Snappy on take-off and landing, gentle otherwise.
+    const armRate = airborne || m.grinding ? 20 : m.arms > ARMS_RIDE + 0.05 ? 10 : 5
+    m.arms = m.arms == null ? armTarget : m.arms + (armTarget - m.arms) * Math.min(1, dt * armRate)
+
     if (bodyRef.current) {
       const body = bodyRef.current
       body.position.y = 0.26 + lift * 0.6 + (m.grinding ? 0.02 : 0)
-      const stance = m.pushU >= 0 ? STANCE_PUSH : STANCE_RIDE[m.style ?? 0] ?? STANCE_RIDE[0]
+      const stance = m.pushU >= 0 || m.idle > 0.01 ? STANCE_PUSH : STANCE_RIDE[m.style ?? 0] ?? STANCE_RIDE[0]
       // The body turns with the board in a powerslide, crouches and leans back.
       const target = stance + slide.current * 1.2
       body.rotation.y += (target - body.rotation.y) * Math.min(1, dt * 12)

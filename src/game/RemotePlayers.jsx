@@ -113,7 +113,7 @@ function RemoteRider({ id }) {
     m.pushing = (s.a & 8) === 8
     m.braking = (s.a & 16) === 16
     m.flips = s.f
-    m.style = rec.style ?? 0
+    m.style = 0
   })
 
   if (!meta) return null

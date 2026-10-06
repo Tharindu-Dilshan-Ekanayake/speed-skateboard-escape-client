@@ -1,4 +1,4 @@
-import { NearestFilter, Quaternion, Vector3 } from 'three'
+import { Box3, NearestFilter, Quaternion, Vector3 } from 'three'
 
 import { BACK_BONE, HAT_BONE, NECK_OFFSET_BONE, PART_SLOTS } from '../bloxity/avatarAssets'
 
@@ -45,6 +45,7 @@ export function collectRig(root) {
     skinnedMeshes: [],
     /** Rest Y of the character root, so the run-cycle bob can return to it. */
     rootRestY: root.position.y,
+    rootRestX: root.position.x,
   }
 
   const meshBySlot = new Map(
@@ -106,6 +107,25 @@ export function collectRig(root) {
       /** Local axis to rotate about for lateral sway. */
       entry.axisZ = new Vector3(0, 0, 1).applyQuaternion(relInv).normalize()
     }
+
+    // Leg measurements for foot placement (kick-push IK), in the character's
+    // parent space at rest: hip height, thigh and shin length, sole height.
+    const soleY = new Box3().setFromObject(root).min.y
+    const parentInv = root.parent ? root.parent.matrixWorld.clone().invert() : null
+    const at = (name) => {
+      const v = rig.bones[name]?.bone.getWorldPosition(new Vector3())
+      return v && parentInv ? v.applyMatrix4(parentInv) : v
+    }
+    rig.legs = {}
+    for (const side of ['L', 'R']) {
+      const hip = at(`Leg${side}1`)
+      const knee = at(`Leg${side}2`)
+      if (!hip || !knee) continue
+      rig.legs[side] = { hipX: hip.x, hipY: hip.y, l1: hip.distanceTo(knee), l2: Math.max(0.01, knee.y - soleY) }
+    }
+    rig.soleY = soleY
+    // +1 when the rider's right is +X in character space.
+    rig.rightSign = rig.legs.R && rig.legs.L && rig.legs.R.hipX < rig.legs.L.hipX ? -1 : 1
 
     rig.hatBone = skeleton.bones.find((b) => b.name === HAT_BONE) || null
     rig.backBone = skeleton.bones.find((b) => b.name === BACK_BONE) || null
@@ -386,6 +406,103 @@ export function animateRig(rig, motion) {
   rig.root.position.y = rig.rootRestY + Math.abs(Math.cos(phase)) * 0.18 * ratio
 }
 
+/** Height of the deck top above the ground, in metres (see Skater.jsx). */
+const DECK_HEIGHT = 0.26
+/** Kick-push foot placement across the board, metres right of the centreline. */
+const KICK_ON_DECK = 0.1
+const KICK_ON_GROUND = 0.36
+/** How far the body leans over the front foot while kicking. */
+const BODY_SHIFT = 0.1
+/** Where the board foot rests across the deck, metres right of the centreline. */
+const FRONT_FOOT_SIDE = 0.02
+
+const ease = (k) => k * k * (3 - 2 * k)
+const clamp1 = (v) => Math.max(-1, Math.min(1, v))
+
+/**
+ * Street-style arms. `m.arms` (eased by Skater) is how far they spread: held low
+ * and a little out to both sides while riding, down and relaxed when standing.
+ * They move ONLY forward and back, in turn (one arm forward while the other
+ * goes back) - never left/right.
+ * `pump` drives the swing in time with a kick; otherwise it is a slow,
+ * smooth rhythm while rolling that fades out when standing.
+ */
+function streetArms(rig, m, pump) {
+  const out = m.arms ?? 1
+  const t = m.time || 0
+  const kicking = (m.pushU ?? -1) >= 0
+  // No swing in the air, on a rail or in a slide: the arms hold out to the sides.
+  const still = kicking || !m.grounded || m.grinding || m.braking
+  const ride = still ? 0 : Math.max(0, Math.min(1, (out - 0.12) / 0.2))
+  // On a rail: balance like a see-saw, one arm dipping while the other rises.
+  const seesaw = m.grinding ? Math.sin(t * 2.2) * 0.22 + Math.sin(t * 5.3 + 0.8) * 0.05 : 0
+  // Forward/back swing only: + means the LEFT arm goes forward, the right one back.
+  const sweep = kicking ? pump : (Math.sin(t * 2.4) * 0.42 + Math.sin(t * 4.8 + 0.6) * 0.05) * ride
+  // The sideways spread is fixed, so the arms never move left/right. These
+  // rotate about the body's real axes (see bodyRotate): the arm bones' rest
+  // axes are skewed, so the per-bone sway/swing would raise them diagonally.
+  bodyRotate(rig, 'ArmL1', _side, -(0.06 + out + seesaw) * rig.rightSign)
+  bodyRotate(rig, 'ArmR1', _side, (0.06 + out - seesaw) * rig.rightSign)
+  bodyRotate(rig, 'ArmL1', _fore, -sweep - 0.1 * out)
+  bodyRotate(rig, 'ArmR1', _fore, sweep - 0.1 * out)
+  // Elbows soften, bending more on the arm that swings forward.
+  swing(rig, 'ArmL2', -0.12 - 0.08 * Math.min(out, 0.4) - Math.max(0, sweep) * 0.6)
+  swing(rig, 'ArmR2', -0.12 - 0.08 * Math.min(out, 0.4) - Math.max(0, -sweep) * 0.6)
+}
+
+/** Character-space axes: `_fore` swings a limb forward/back, `_side` raises it sideways. */
+const _fore = new Vector3(1, 0, 0)
+const _side = new Vector3(0, 0, 1)
+const _pq = new Quaternion()
+const _rq = new Quaternion()
+const _ax = new Vector3()
+
+/**
+ * Rotates a bone about a character-space axis through its own pivot, using the
+ * bone's CURRENT parent orientation (so it is exact whatever the rest axes are).
+ */
+function bodyRotate(rig, name, axis, angle) {
+  const bone = rig.bones[name]?.bone
+  if (!bone?.parent || !angle) return
+  bone.parent.updateWorldMatrix(true, false)
+  bone.parent.getWorldQuaternion(_pq).invert()
+  rig.root.getWorldQuaternion(_rq)
+  _ax.copy(axis).applyQuaternion(_rq).applyQuaternion(_pq)
+  bone.quaternion.premultiply(_animQ.setFromAxisAngle(_ax, angle))
+}
+
+/**
+ * Places a foot flat on a surface `down` below the hip: the shin stays upright
+ * (blocky feet have no ankle, so a tilted shin digs a corner into the deck) and
+ * the thigh lifts forward as far as it needs to.
+ */
+function flatLeg(rig, side, down, right, h) {
+  const leg = rig.legs[side]
+  sway(rig, `Leg${side}1`, Math.atan2(right, down))
+  const d = Math.hypot(down, right)
+  const lift = Math.acos(Math.max(-1, Math.min(1, (d - leg.l2 * h) / (leg.l1 * h))))
+  swing(rig, `Leg${side}1`, -lift)
+  swing(rig, `Leg${side}2`, lift)
+}
+
+/**
+ * Two-bone IK for one leg. `fwd`, `down` and `right` place the sole relative to
+ * the hip (parent-space units). The leg first tilts sideways towards the target,
+ * then hip and knee bend in that plane; the knee always points forward.
+ */
+function legIK(rig, side, fwd, down, right, h) {
+  const leg = rig.legs[side]
+  const l1 = leg.l1 * h
+  const l2 = leg.l2 * h
+  sway(rig, `Leg${side}1`, Math.atan2(right, down))
+  const dy = Math.hypot(down, right)
+  const d = Math.min(Math.max(Math.hypot(fwd, dy), 0.05 * (l1 + l2)), (l1 + l2) * 0.999)
+  const knee = Math.PI - Math.acos(clamp1((l1 * l1 + l2 * l2 - d * d) / (2 * l1 * l2)))
+  const hipAngle = Math.atan2(fwd, dy) + Math.acos(clamp1((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d)))
+  swing(rig, `Leg${side}1`, -hipAngle)
+  swing(rig, `Leg${side}2`, knee)
+}
+
 /**
  * Skateboarding pose. The avatar stands sideways on the board (the parent
  * rotates it ~80°), knees bent, arms out along the board for balance. During a
@@ -397,11 +514,12 @@ export function animateRig(rig, motion) {
  *           grinding:boolean, pushU:number, lean:number, style:number }} m
  *   style: 0 surfer, 1 classic, 2 chill
  */
-export function poseSkater(rig, m) {
+export function poseSkater(rig, m, unitScale = 1) {
   if (!rig?.skeleton || !m) return
   const ratio = Math.min(1, (m.speed || 0) / Math.max(1, m.maxSpeed || 10))
   const t = m.time || 0
   const lean = m.lean || 0
+  rig.root.position.x = rig.rootRestX
 
   if (m.grinding) {
     sway(rig, 'LegL1', -0.32)
@@ -411,13 +529,13 @@ export function poseSkater(rig, m) {
     swing(rig, 'LegR1', -0.8)
     swing(rig, 'LegR2', 1.45)
     swing(rig, 'Spine1', -0.3)
-    sway(rig, 'ArmL1', -1.3 + Math.sin(t * 8) * 0.08)
-    sway(rig, 'ArmR1', 1.3 - Math.sin(t * 8) * 0.08)
+    // Balancing on the rail: arms wide out to both sides, see-sawing.
+    streetArms(rig, m, 0)
     rig.root.position.y = rig.rootRestY - 0.6
     return
   }
 
-  if (!m.grounded && m.style === 0) {
+  if (!m.grounded && m.style === -1) {
     // Indy grab: knees tucked, trailing hand reaches down to the board.
     sway(rig, 'LegL1', -0.35)
     sway(rig, 'LegR1', 0.35)
@@ -443,9 +561,8 @@ export function poseSkater(rig, m) {
     swing(rig, 'LegR1', -1.1)
     swing(rig, 'LegR2', 1.7)
     swing(rig, 'Spine1', -0.25)
-    sway(rig, 'ArmL1', -1.25)
-    sway(rig, 'ArmR1', 1.1)
-    swing(rig, 'ArmL1', -0.4)
+    // Arms stretch straight out to both sides for the jump (eased by Skater).
+    streetArms(rig, m, 0)
     rig.root.position.y = rig.rootRestY - 0.4
     return
   }
@@ -459,71 +576,101 @@ export function poseSkater(rig, m) {
     swing(rig, 'LegR1', -0.75)
     swing(rig, 'LegR2', 1.35)
     swing(rig, 'Spine1', -0.1)
-    sway(rig, 'ArmL1', -1.35)
-    sway(rig, 'ArmR1', 1.15)
-    swing(rig, 'ArmR1', -0.4)
+    streetArms(rig, m, 0)
     rig.root.position.y = rig.rootRestY - 0.7
     return
   }
 
   const u = m.pushU ?? -1
-  if (u >= 0) {
-    // Kick-push. Front leg stays on the board and bends; back leg strikes the
-    // ground ahead of the hip, sweeps back, then lifts and comes forward again.
-    let thigh
-    let knee
-    let drop
-    if (u < 0.15) {
-      const k = u / 0.15
-      thigh = 0.2 - 0.6 * k
-      knee = 1.0 - 0.85 * k
-      drop = 0.35 + 0.5 * k
+  // Street style standing still: one foot on the board, the other on the ground.
+  const idle = m.style === 0 && u < 0 ? m.idle || 0 : 0
+  if ((u >= 0 || idle > 0.001) && rig.legs?.L && rig.legs?.R) {
+    // Kick-push: the front foot stays planted on the deck while the other leg
+    // steps OFF the board, plants on the ground beside it, pushes back along the
+    // ground, then lifts and comes back up onto the deck. Feet are placed with
+    // two-bone IK so the sole really touches the deck and the ground.
+    const s = unitScale || 1
+    const w = (metres) => metres / s
+    const deck = rig.soleY
+    const ground = deck - w(DECK_HEIGHT)
+    // Sink the hips (front knee bends) so the kicking leg reaches the ground,
+    // easing in at the start and out at the end of each kick.
+    let sink = u >= 0 ? Math.max(0, Math.sin(Math.min(1, u * 1.15) * Math.PI)) : 0
+    let drop = w(0.1 + 0.2 * sink)
+
+    // Positions in metres: `fwd` along the board, `side` across it (to the
+    // rider's right of the centreline), `y` the sole height.
+    let fwd
+    let side
+    let y
+    const h = rig.root.scale.y || 1
+    const L = rig.legs.L
+    const R = rig.legs.R
+    const hipOffset = (leg) => rig.rightSign * (leg.hipX - rig.rootRestX)
+    let shift = w(BODY_SHIFT)
+    if (u < 0) {
+      // Step off and stand: the hip moves over the ground foot so that leg is
+      // straight and carries the weight; the other foot rests flat on the deck.
+      const k = ease(Math.min(1, idle))
+      const breathe = Math.sin(t * 1.8) * 0.01 * k
+      const hipRest = rig.rootRestY + h * (R.hipY - rig.rootRestY)
+      const standDrop = hipRest - ground - (R.l1 + R.l2) * h * 0.995
+      sink = 0
+      drop = w(0.1) + (standDrop - w(0.1)) * k + w(breathe)
+      shift += (w(KICK_ON_GROUND) - hipOffset(R) - shift) * k
+      fwd = -0.12 + 0.12 * k
+      side = KICK_ON_DECK + (KICK_ON_GROUND - KICK_ON_DECK) * k
+      y = deck + (ground - deck) * k + w(0.08) * Math.sin(k * Math.PI)
+    } else if (u < 0.2) {
+      // Step off the deck, slightly ahead, to plant beside the front truck.
+      const k = ease(u / 0.2)
+      fwd = -0.12 + 0.3 * k
+      side = KICK_ON_DECK + (KICK_ON_GROUND - KICK_ON_DECK) * k
+      y = deck + (ground - deck) * k + w(0.06) * Math.sin(k * Math.PI)
     } else if (u < 0.62) {
-      const k = (u - 0.15) / 0.47
-      thigh = -0.4 + 1.25 * k
-      knee = 0.15
-      drop = 0.85
+      // Foot on the ground beside the board, pushing back.
+      const k = (u - 0.2) / 0.42
+      fwd = 0.18 - 0.62 * k
+      side = KICK_ON_GROUND
+      y = ground
     } else {
-      const k = (u - 0.62) / 0.38
-      thigh = 0.85 - 0.65 * k
-      knee = 0.15 + Math.sin(k * Math.PI) * 1.3
-      drop = 0.85 - 0.5 * k
+      // Lift up behind and swing back onto the deck.
+      const k = ease((u - 0.62) / 0.38)
+      fwd = -0.44 + 0.32 * k
+      side = KICK_ON_GROUND + (KICK_ON_DECK - KICK_ON_GROUND) * k
+      y = ground + (deck - ground) * k + w(0.08) * Math.sin(k * Math.PI)
     }
-    swing(rig, 'LegL1', -0.75)
-    swing(rig, 'LegL2', 1.45)
-    swing(rig, 'LegR1', thigh)
-    swing(rig, 'LegR2', knee)
-    sway(rig, 'LegR1', 0.16)
-    swing(rig, 'Spine1', -0.3)
-    swing(rig, 'ArmL1', thigh * 0.5)
-    swing(rig, 'ArmR1', -thigh * 0.5)
-    sway(rig, 'ArmL1', -0.3)
-    sway(rig, 'ArmR1', 0.3)
+
+    // Weight over the front foot: the body shifts so that foot sits on the
+    // centreline and the kicking leg hangs beside the board, not over it.
+    rig.root.position.x = rig.rootRestX + rig.rightSign * shift
     rig.root.position.y = rig.rootRestY - drop
+    const hipY = (leg) => rig.root.position.y + h * (leg.hipY - rig.rootRestY)
+    const hipRight = (leg) => hipOffset(leg) + shift
+    flatLeg(rig, 'L', hipY(L) - deck, w(FRONT_FOOT_SIDE) - hipRight(L), h)
+    legIK(rig, 'R', w(fwd), hipY(R) - y, w(side) - hipRight(R), h)
+
+    swing(rig, 'Spine1', -0.06 - sink * 0.06)
+    streetArms(rig, m, u >= 0 ? fwd * 1.5 : 0)
     return
   }
 
   if (m.style === 0) {
-    // Surfer: deep low crouch, wide feet, leading arm reaching toward the nose,
-    // trailing arm low behind. Carves by rolling the shoulders into the turn.
-    const crouch = 0.55 + ratio * 0.2
-    const carve = lean * 0.6
-    const breathe = Math.sin(t * 2.1) * 0.04
-    sway(rig, 'LegL1', -0.45)
-    sway(rig, 'LegR1', 0.45)
-    swing(rig, 'LegL1', -crouch)
-    swing(rig, 'LegL2', crouch * 1.85)
-    swing(rig, 'LegR1', -crouch)
-    swing(rig, 'LegR2', crouch * 1.85)
-    swing(rig, 'Spine1', -0.32 - ratio * 0.1)
-    sway(rig, 'Spine1', carve * 0.6)
-    sway(rig, 'ArmL1', -1.15 - carve * 0.4 + breathe)
-    swing(rig, 'ArmL1', -0.55)
-    swing(rig, 'ArmL2', -0.35)
-    sway(rig, 'ArmR1', 0.75 - carve * 0.4 - breathe)
-    swing(rig, 'ArmR1', 0.6)
-    swing(rig, 'ArmR2', -0.5)
-    rig.root.position.y = rig.rootRestY - crouch * 0.95 + breathe
+    // Street (default, Roblox-style): standing almost upright on the board,
+    // front foot ahead and back foot behind, knees softly bent, arms relaxed
+    // a little away from the body. Leans into turns.
+    const bend = 0.16 + ratio * 0.1
+    const breathe = Math.sin(t * 2.2) * 0.025
+    swing(rig, 'LegL1', -0.22 - bend)
+    swing(rig, 'LegL2', 0.3 + bend * 1.6)
+    swing(rig, 'LegR1', 0.18 - bend * 0.6)
+    swing(rig, 'LegR2', 0.25 + bend * 1.2)
+    sway(rig, 'LegL1', -0.06)
+    sway(rig, 'LegR1', 0.06)
+    swing(rig, 'Spine1', -0.06 - ratio * 0.08)
+    sway(rig, 'Spine1', lean * 0.25)
+    streetArms(rig, m, 0)
+    rig.root.position.y = rig.rootRestY - bend * 0.6 + breathe
     return
   }
 
