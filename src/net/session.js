@@ -88,7 +88,7 @@ function writeGuestToken(token) {
  * signed-in user shortly after start-up, so give it a moment before falling
  * back to a guest. There is no login button in the game.
  */
-async function waitForBloxity(timeoutMs = 6000, userWaitMs = 4000) {
+async function waitForBloxity(timeoutMs = 6000, userWaitMs = 1500) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     const status = useBloxityStore.getState().status
@@ -123,10 +123,28 @@ async function fetchSessionToken() {
   return res.token
 }
 
+/**
+ * Start waking the server the moment the page loads. After a quiet period the
+ * game has no pods running ("scale to zero"), and the first request has to boot
+ * one - so we ask for a pod right away, while the 3D scene is still loading,
+ * and use the answer a moment later instead of waiting for it then.
+ */
+let earlyPlay = null
+function prewarm() {
+  if (earlyPlay) return
+  // Open the connection to the backend (TLS + DNS) and wake it.
+  fetch(`${SERVER_URL}/health`, { mode: 'no-cors', cache: 'no-store' }).catch(() => {})
+  earlyPlay = { at: Date.now(), promise: MATCHMAKER_URL ? postJson(`${MATCHMAKER_URL}/v1/play/${PLAY_ID}`, {}) : Promise.resolve(null) }
+}
+
 /** Asks the Legion matchmaker for a pod; falls back to the direct backend URL. */
 async function createClient() {
   if (MATCHMAKER_URL) {
-    const res = await postJson(`${MATCHMAKER_URL}/v1/play/${PLAY_ID}`, {})
+    // Reuse the early request once, if it is still fresh.
+    const early = earlyPlay
+    earlyPlay = null
+    let res = early && Date.now() - early.at < 25000 ? await early.promise : null
+    if (!res?.roomId) res = await postJson(`${MATCHMAKER_URL}/v1/play/${PLAY_ID}`, {})
     if (res?.roomId) {
       return new Client(`${MATCHMAKER_URL.replace(/^http/, 'ws')}/v1/ws/${res.roomId}`)
     }
@@ -151,15 +169,17 @@ class Session {
   listTimer = 0
   userKey = undefined
 
+  /** Wakes the backend early (see `prewarm` above). Safe to call more than once. */
+  prewarm() {
+    prewarm()
+  }
+
   /** Called once at boot; keeps retrying until a room is joined. */
   async start() {
     if (this.connecting) return
     this.connecting = true
     const game = useGame.getState()
-    if (game.phase !== 'playing') {
-      game.setPhase('connecting')
-      game.setLoading(0.85, 'Signing in…')
-    }
+    if (game.phase !== 'playing') game.setLoading(0.3, 'Signing in…')
     await waitForBloxity()
     this.watchLogin()
 
@@ -168,7 +188,7 @@ class Session {
       try {
         const token = await fetchSessionToken()
         if (!token) throw new Error('no token')
-        if (useGame.getState().phase !== 'playing') useGame.getState().setLoading(0.92, 'Finding a server…')
+        if (useGame.getState().phase !== 'playing') useGame.getState().setLoading(0.45, 'Finding a server…')
         const client = await createClient()
         // Resume at the current stage after a reconnect / server hop.
         const resume = { stage: live.local.checkpoint || 0 }
@@ -183,8 +203,10 @@ class Session {
       } catch (err) {
         attempt += 1
         console.warn('[net] connect failed, retrying', err?.message || err)
-        if (useGame.getState().phase !== 'playing') useGame.getState().setLoading(0.92, 'Connecting to server…')
-        await wait(Math.min(8000, 800 * attempt))
+        if (useGame.getState().phase !== 'playing') useGame.getState().setLoading(0.45, 'Waking up the server…')
+        // A server that is still waking up usually answers within a few seconds, so
+        // poll quickly at first and only back off when it stays down.
+        await wait(Math.min(5000, 400 + 300 * attempt))
       }
     }
     this.connecting = false
@@ -263,10 +285,7 @@ class Session {
     this.pingTimer = setInterval(() => this.send('ping', { c: Date.now() }), 4000)
     this.send('ping', { c: Date.now() })
 
-    if (game.phase !== 'playing') {
-      game.setLoading(1, 'Ready!')
-      setTimeout(() => useGame.getState().setPhase('playing'), 250)
-    }
+    game.markReady('net')
   }
 
   send(type, payload) {

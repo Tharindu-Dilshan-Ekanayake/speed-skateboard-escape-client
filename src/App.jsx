@@ -1,39 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
-import { preloadFont } from 'troika-three-text'
 
 import { useBloxity } from './bloxity/BloxityContext'
 import { audio } from './game/audio'
 import { installKeyboard } from './game/controls'
-import GameScene from './game/GameScene'
-import { initRapier } from './game/physics'
-import { FONT_URL } from './game/World'
 import { net } from './net/session'
 import { getWorlds } from './shared/layout'
 import { useGame } from './state/store'
 import Hud from './ui/Hud'
 import LoadingScreen, { KickedScreen } from './ui/LoadingScreen'
 
-const GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-.:!?/() ,\'x'
-
-function preloadText() {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, 6000)
-    try {
-      preloadFont({ font: FONT_URL, characters: GLYPHS }, () => {
-        clearTimeout(timer)
-        resolve()
-      })
-    } catch {
-      clearTimeout(timer)
-      resolve()
-    }
-  })
-}
-
 function App() {
   const phase = useGame((s) => s.phase)
   const { game } = useBloxity()
-  const [sceneReady, setSceneReady] = useState(false)
+  // The 3D scene component, once the engine chunk has loaded.
+  const [Scene, setScene] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -46,17 +26,23 @@ function App() {
     ;(async () => {
       store.setPhase('loading')
       store.setLoading(0.05, 'Waxing the boards…')
+      // Wake the server and sign in WHILE the scene below is being built, instead
+      // of waiting for it first: the two used to run one after the other.
+      net.prewarm()
+      net.start()
       game.loadingStep('Loading physics…')
-      await initRapier()
+      const engine = await import('./game/engine')
       if (cancelled) return
-      store.setLoading(0.35, 'Building the skatepark…')
+      store.setLoading(0.15, 'Loading physics…')
+      await engine.initRapier()
+      if (cancelled) return
+      store.setLoading(0.25, 'Building the skatepark…')
       game.loadingStep('Building the skatepark…')
       getWorlds()
-      await preloadText()
+      await engine.preloadText()
       if (cancelled) return
-      store.setLoading(0.7, 'Painting the ramps…')
-      setSceneReady(true)
-      net.start()
+      store.setLoading(0.35, 'Painting the ramps…')
+      setScene(() => engine.GameScene)
     })()
 
     return () => {
@@ -69,12 +55,15 @@ function App() {
   }, [phase, game])
 
   const onFirstFrame = useCallback(() => {
-    useGame.getState().setLoading(0.8, 'Finding a server…')
+    useGame.getState().setLoading(0.6, 'Almost there…')
   }, [])
+
+  // The scene counts as ready once its shaders are compiled (see Warmup).
+  const onSceneReady = useCallback(() => useGame.getState().markReady('scene'), [])
 
   return (
     <div className="app-root">
-      {sceneReady ? <GameScene onFirstFrame={onFirstFrame} /> : null}
+      {Scene ? <Scene onFirstFrame={onFirstFrame} onReady={onSceneReady} /> : null}
       {phase === 'playing' ? <Hud /> : null}
       {phase === 'kicked' ? <KickedScreen /> : <LoadingScreen />}
     </div>

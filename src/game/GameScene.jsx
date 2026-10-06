@@ -28,7 +28,7 @@ function FirstFrame({ onFirst }) {
  * for a moment. Hidden (far-away) objects are briefly un-hidden so they are
  * included, then restored.
  */
-function Warmup({ layoutKey }) {
+function Warmup({ layoutKey, onDone }) {
   const { gl, scene, camera } = useThree()
   const frames = useRef(0)
   const done = useRef(null)
@@ -55,11 +55,13 @@ function Warmup({ layoutKey }) {
       console.warn('[warmup] precompile failed', err)
     }
     for (const o of hidden) o.visible = false
+    // Report after the next frame has actually been drawn.
+    requestAnimationFrame(() => onDone?.())
   })
   return null
 }
 
-function Scene({ worldIndex, shadows, onFirstFrame }) {
+function Scene({ worldIndex, shadows, onFirstFrame, onReady }) {
   const layout = getWorlds()[worldIndex]
   const physics = useMemo(() => new Physics(layout, layout.spawn), [layout])
   const sun = useRef(null)
@@ -103,13 +105,13 @@ function Scene({ worldIndex, shadows, onFirstFrame }) {
       <Obstacles layout={layout} physics={physics} />
       <LocalPlayer key={worldIndex} layout={layout} physics={physics} sunRef={sun} />
       <RemotePlayers world={worldIndex} />
-      <Warmup layoutKey={worldIndex} />
+      <Warmup layoutKey={worldIndex} onDone={onReady} />
       <FirstFrame onFirst={onFirstFrame} />
     </>
   )
 }
 
-export function GameScene({ onFirstFrame }) {
+export function GameScene({ onFirstFrame, onReady }) {
   const world = useGame((s) => s.stats.world)
   const quality = useGame((s) => s.settings.quality)
   const high = quality === 'high'
@@ -126,7 +128,7 @@ export function GameScene({ onFirstFrame }) {
         if (import.meta.env.DEV && window.__sse) Object.assign(window.__sse, { gl, scene })
       }}
     >
-      <Scene worldIndex={world} shadows={high} onFirstFrame={onFirstFrame} />
+      <Scene worldIndex={world} shadows={high} onFirstFrame={onFirstFrame} onReady={onReady} />
     </Canvas>
   )
 }

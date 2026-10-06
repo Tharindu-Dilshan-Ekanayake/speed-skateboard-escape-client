@@ -20,12 +20,21 @@ export function LoadingScreen() {
   const text = useGame((s) => s.loadingText)
   const [tip, setTip] = useState(() => Math.floor(Math.random() * TIPS.length))
   const [gone, setGone] = useState(false)
+  const [slow, setSlow] = useState(false)
   const done = phase === 'playing'
 
   useEffect(() => {
     const t = setInterval(() => setTip((i) => (i + 1) % TIPS.length), 3500)
     return () => clearInterval(t)
   }, [])
+
+  // After a quiet period the game has no server running; the first player to
+  // arrive wakes one up, which can take a few seconds. Say so instead of looking stuck.
+  useEffect(() => {
+    if (done) return undefined
+    const t = setTimeout(() => setSlow(true), 7000)
+    return () => clearTimeout(t)
+  }, [done])
 
   useEffect(() => {
     if (!done) return undefined
@@ -52,7 +61,7 @@ export function LoadingScreen() {
           <div className="lfill" style={{ width: `${Math.round(progress * 100)}%` }} />
         </div>
         <div className="ltext">{text}</div>
-        <div className="ltip">{TIPS[tip]}</div>
+        <div className="ltip">{slow ? 'Waking up the game server - the first visit after a quiet while takes a few extra seconds…' : TIPS[tip]}</div>
       </div>
     </div>
   )
